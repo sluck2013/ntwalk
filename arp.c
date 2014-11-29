@@ -8,6 +8,23 @@
 int main() {
     LocalMap *localMap = getLocalMap();
     prtLocalMap(localMap);
+
+    struct sockaddr_un suArpAddr;
+    const int iDomSock = socket(AF_LOCAL, SOCK_STREAM, 0);
+    if (iDomSock == -1) {
+        errExit(ERR_ARP_CREATE_DOM_SOCK);
+    }
+    bzero(&suArpAddr, sizeof(suArpAddr));
+    suArpAddr.sun_family = AF_LOCAL;
+    strcpy(suArpAddr.sun_path, ARP_SUN_PATH);
+    unlink(ARP_SUN_PATH);
+    Bind(iDomSock, (SA*)&suArpAddr, sizeof(suArpAddr));
+
+    const int iRawSock = socket(PF_PACKET, SOCK_RAW, htons(ARP_ETH_PROT));
+    if (iRawSock == -1) {
+        errExit(ERR_ARP_CREATE_RAW_SOCK);
+    }
+    //free(localMap);
     return 0;
 }
 

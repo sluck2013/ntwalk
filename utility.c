@@ -26,3 +26,13 @@ void sprtMac(char* dest, const char* mac) {
     }
     sprintf(dest + 15, "%.2x", mac[5]);
 }
+
+void prtErr(const char *errMsg) {
+    prtln("ERROR: %s", errMsg);
+    fflush(stdout);
+}
+
+void errExit(const char *errMsg) {
+    prtErr(errMsg);
+    exit(1);
+}

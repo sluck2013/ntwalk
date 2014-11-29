@@ -10,8 +10,8 @@ all: tour18 arp18
 
 tour18: tour.o api.o
 	$(CC) $(CFLAGS) -o tour18 tour.o api.o $(LIBS)
-arp18: arp.o
-	$(CC) $(CFLAGS) -o arp18 arp.o $(LIBS)
+arp18: arp.o get_hw_addrs.o utility.o
+	$(CC) $(CFLAGS) -o arp18 arp.o get_hw_addrs.o utility.o $(LIBS)
 
 tour.o: tour.c tour.h
 	$(CC) $(FLAGS) -c tour.c

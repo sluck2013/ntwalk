@@ -11,5 +11,6 @@
 
 #define ERR_ARP_CREATE_RAW_SOCK "Cannot create PF_PACKET socket!"
 #define ERR_ARP_CREATE_DOM_SOCK "Cannot create Unix domain socket!"
+#define ERR_ARP_ACCEPT "Accepting failed on domain socket!"
 
 #endif

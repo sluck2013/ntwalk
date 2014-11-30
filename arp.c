@@ -19,10 +19,30 @@ int main() {
     strcpy(suArpAddr.sun_path, ARP_SUN_PATH);
     unlink(ARP_SUN_PATH);
     Bind(iDomSock, (SA*)&suArpAddr, sizeof(suArpAddr));
+    Listen(iDomSock, LISTENQ);
 
     const int iRawSock = socket(PF_PACKET, SOCK_RAW, htons(ARP_ETH_PROT));
     if (iRawSock == -1) {
         errExit(ERR_ARP_CREATE_RAW_SOCK);
+    }
+
+    int iMaxFd = max(iRawSock, iDomSock);
+
+    fd_set fsAll, fsRead;
+    FD_ZERO(&fsAll);
+    FD_SET(iDomSock, &fsAll);
+    FD_SET(iRawSock, &fsAll);
+
+    while (1) {
+        fsRead = fsAll;
+        int iReadyNum = select(iMaxFd + 1, &fsRead, NULL, NULL, NULL);
+        if (iReadyNum > 0) {
+            if (FD_ISSET(iDomSock, &fsRead)) {
+                replyTour(iDomSock);
+            }
+            if (FD_ISSET(iRawSock, &fsRead)) {
+            }
+        }
     }
     //free(localMap);
     return 0;
@@ -70,4 +90,28 @@ void prtLocalMap(const LocalMap* localMap) {
         lmPtr = lmPtr->next;
     }
     prtln("====== Local <IP addr, HW addr> found for eth0 END ======");
+}
+
+void replyTour(const int iListenSock) {
+    struct sockaddr_un suSender;
+    socklen_t senderLen = sizeof(suSender);
+    int iConnSock = accept(iListenSock, (SA*)&suSender, &senderLen);
+    if (iConnSock < 0) {
+        if (errno == EINTR) {
+            return;
+        } else {
+            errExit(ERR_ARP_ACCEPT);
+        }
+    }
+
+    if (fork() == 0) {
+        close(iListenSock);
+        char readBuf[IP_LEN];
+        read(iConnSock, readBuf, IP_LEN);
+        prtln("%s", readBuf);
+        close(iConnSock);
+        return;
+    }
+    
+    close(iConnSock);
 }

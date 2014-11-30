@@ -14,5 +14,6 @@ typedef struct LocalMapping {
 
 LocalMap* getLocalMap();
 void prtLocalMap(const LocalMap* localMap);
+void replyTour(const int iSock);
 
 #endif

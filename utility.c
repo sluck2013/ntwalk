@@ -20,7 +20,7 @@ int prtln(const char* format, ...) {
  * @param dest pointer to destination string buffer
  * @param mac pointer to buffer storing MAC address to be printed
  */
-void sprtMac(char* dest, const char* mac) {
+void sprtMac(char* dest, const unsigned char* mac) {
     for (int i = 0; i < 5; ++i) {
         sprintf(dest + i * 3, "%.2x:", mac[i]);
     }

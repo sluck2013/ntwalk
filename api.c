@@ -5,7 +5,7 @@
 int areq(struct sockaddr* IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr) {
     prtln("==== in AREQ ==== ");
     prtln("index:%d", HWaddr->sll_ifindex);
-    unsigned char sendData[IP_LEN + HWADDR_SIZE + 1];
+    unsigned char sendData[IP_STR_LEN + HWADDR_SIZE + 1];
     marshalAreq(sendData, IPaddr, HWaddr);
 
     struct sockaddr_un suArpAddr;

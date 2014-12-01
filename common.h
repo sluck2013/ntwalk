@@ -10,7 +10,7 @@ typedef struct hwaddr {
     unsigned char sll_addr[8];
 } Hwaddr;
 
-void marshalIPAddr(char* dest, const struct sockaddr* IPaddr);
-void unmarshalIPAddr(SA* IPaddr, const char* src);
+void marshalAreq(unsigned char* dest, const struct sockaddr* IPaddr, const Hwaddr *hwAddr);
+void unmarshalAreq(char *IP, Hwaddr *hwAddr, const unsigned char *src);
 
 #endif

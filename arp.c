@@ -1,13 +1,16 @@
 #include "arp.h"
+#include "common.h"
 #include "lib/hw_addrs.h"
 #include "unp.h"
 #include "utility.h"
 #include <stdlib.h>
 #include <string.h>
 
+ACacheTab *pARPCahceTab;
 int main() {
     LocalMap *localMap = getLocalMap();
     prtLocalMap(localMap);
+    pARPCahceTab = createACacheTab();
 
     struct sockaddr_un suArpAddr;
     const int iDomSock = socket(AF_LOCAL, SOCK_STREAM, 0);
@@ -106,12 +109,56 @@ void replyTour(const int iListenSock) {
 
     if (fork() == 0) {
         close(iListenSock);
-        char readBuf[IP_LEN];
-        read(iConnSock, readBuf, IP_LEN);
-        prtln("%s", readBuf);
+        unsigned char readBuf[IP_LEN + HWADDR_SIZE + 1];
+        read(iConnSock, readBuf, IP_LEN + HWADDR_SIZE + 1);
+        char targetIP[IP_LEN];
+        Hwaddr tourHwAddr;
+        prtln("ss:%s", readBuf);
+        unmarshalAreq(targetIP, &tourHwAddr, readBuf);
+        prtln("IP:%s", targetIP);
+        prtln("index:%d", tourHwAddr.sll_ifindex);
+        prtln("hatype:%d", tourHwAddr.sll_hatype);
+        prtln("halen:%d", tourHwAddr.sll_halen);
+        prtln("addr:%s", tourHwAddr.sll_addr);
+        //check cache table
+        ACacheEnt* pEnt = findACacheEntByIP(pARPCahceTab, targetIP);
+        if (pEnt == NULL) {
+
+        } else {
+
+        }
         close(iConnSock);
         return;
     }
     
     close(iConnSock);
+}
+
+/*
+ * create and returns a null ARP cache table
+ * @return pointer to created cache table.
+ */
+ACacheTab* createACacheTab() {
+    ACacheTab* tab = malloc(sizeof(*tab));
+    tab->head = tab->tail = NULL;
+    return tab;
+}
+
+/*
+ * find entry in ARP cache table with designated IP address
+ * @return pointer to found entry if found, NULL otherwise
+ * @param IP string representing IP address to be found
+ * @param tab pointer to cache table in which search is performed.
+ */
+ACacheEnt* findACacheEntByIP(const ACacheTab* tab, const char* IP) {
+    ACacheEnt* p = tab->head;
+    while (p != NULL) {
+        if (strcmp(p->IP, IP) == 0) {
+            return p;
+        }
+    }
+    return NULL;
+}
+
+ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const char* mac, const int ifindex, const int hatype, const int connfd) {
 }

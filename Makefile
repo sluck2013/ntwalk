@@ -8,10 +8,10 @@ FLAGS = $(IFLAGS) $(CFLAGS)
 
 all: tour18 arp18
 
-tour18: tour.o api.o common.o
-	$(CC) $(CFLAGS) -o tour18 tour.o api.o common.o $(LIBS)
-arp18: arp.o get_hw_addrs.o utility.o
-	$(CC) $(CFLAGS) -o arp18 arp.o get_hw_addrs.o utility.o $(LIBS)
+tour18: tour.o api.o common.o utility.o
+	$(CC) $(CFLAGS) -o tour18 tour.o api.o common.o utility.o $(LIBS)
+arp18: arp.o get_hw_addrs.o utility.o common.o
+	$(CC) $(CFLAGS) -o arp18 arp.o get_hw_addrs.o common.o utility.o $(LIBS)
 
 tour.o: tour.c tour.h
 	$(CC) $(FLAGS) -c tour.c

@@ -3,6 +3,7 @@
 
 #include "constants.h"
 #include "unp.h"
+#include <linux/if_packet.h>
 #include <linux/if_ether.h>
 
 /*
@@ -53,15 +54,18 @@ short parseEthFrame(ARPMsg* arpMsg, const void* eth);
 LocalMap* getLocalMap();
 void prtLocalMap(const LocalMap* localMap);
 const LocalMap* getLocalMapEntByIP(const LocalMap* mp, const char *IP);
-void replyTour(const int iSock, const int iRawSock, int* iConnSock);
+void handleAppReq(const int iSock, const int iRawSock, int* iConnSock);
+void handleArpReq(const int iSock, ARPMsg* arpMsg, const struct sockaddr_ll* slSrcAddr);
 int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex);
 int sendARPRequest(const int iSockfd, const char* targetIP);
+int sendARPReply(const int iSockfd, ARPMsg* arpMsg, const int ifindex);
 void sprtIP(char* dest, const unsigned char *src);
 void parseIP(unsigned char *dest, const char *src);
 
 ACacheTab* createACacheTab();
 ACacheEnt* findACacheEntByIP(const ACacheTab* tab, const char *IP);
-ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const char* mac, unsigned char macLen, const int ifindex, const unsigned short hatype, const int connfd);
+ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd);
+ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd);
 void removeIncompACacheEnt(ACacheTab* tab);
 int isACacheEntComplete(const ACacheEnt* e);
 

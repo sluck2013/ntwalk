@@ -118,7 +118,7 @@ LocalMap* getLocalMap() {
     struct hwa_info *hwaHead, *hwaPtr;
     hwaHead = hwaPtr = Get_hw_addrs();
     while (hwaPtr!= NULL) {
-        if (strcmp(hwaPtr->if_name, "eth0") == 0) {
+        if (strstr(hwaPtr->if_name, "eth0") != NULL) {
             mapPtr = malloc(sizeof(LocalMap));
             struct sockaddr *sa = hwaPtr->ip_addr;
             char *addr = Sock_ntop_host(sa, sizeof(*sa));
@@ -189,11 +189,10 @@ void handleArpReply(const ARPMsg* arpMsg, const int iRawSock, const int iListenS
         //entry has been deleted due to timeout
         return;
     }
-    updateACacheEnt(e, "", arpMsg->srcMac, -1, -1, -1);
+    updateACacheEnt(e, NULL, arpMsg->srcMac, -1, 0, -1);
     Hwaddr hwAddr;
     hwAddr.sll_ifindex = e->ifindex;
     hwAddr.sll_hatype = e->hatype;
-    prtln("e->hatype %u", e->hatype);
     hwAddr.sll_halen = ETH_ALEN;
     memcpy((void*)hwAddr.sll_addr, (void*)e->mac, ETH_ALEN);
     unsigned char writeBuf[UXDOM_BUF_SIZE];
@@ -268,6 +267,9 @@ void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
         FD_SET(*piConnSock, &fsAll);
         iMaxFd = max(iMaxFd, *piConnSock);
     } else if (pEnt->connfd == -1) {
+#ifdef DEBUG
+        prtln("Found target HWaddr in cache table.");
+#endif
         unsigned char data[UXDOM_BUF_SIZE];
         tourHwAddr.sll_ifindex = pEnt->ifindex;
         tourHwAddr.sll_hatype = pEnt->hatype;
@@ -324,25 +326,52 @@ ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned ch
         e->next = tab->tail->next;
         tab->tail = e;
     }
+#ifdef DEBUG
+    prtACacheEnt("Entry inserted into cache table", e);
+#endif
     return e;
 }
 
 ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd) {
+#ifdef DEBUG
+    char sMac[MAC_STR_LEN];
+    printf("Updating cache table... Updated field: ");
+#endif
     if (IP != NULL) {
        strcpy(e->IP, IP);
+#ifdef DEBUG
+       printf("IP ");
+#endif
     }
     if (mac != NULL) {
         memcpy(e->mac, mac, ETH_ALEN);
+#ifdef DEBUG
+        printf("mac ");
+        sprtMac(sMac, mac);
+#endif
     }
     if (ifindex != -1) {
+#ifdef DEBUG
+        printf("ifindex ");
+#endif
         e->ifindex = ifindex;
     }
-    if (hatype != -1) {
+    if (hatype != 0) {
         e->hatype = hatype;
+#ifdef DEBUG
+        printf("hatype ");
+#endif
     }
     if (connfd != -1) {
+#ifdef DEBUG
+        printf("connfd");
+#endif
         e->connfd = connfd;
     }
+#ifdef DEBUG
+    printf("\n");
+    prtACacheEnt("Cache table entry updated", e);
+#endif
 }
 
 void removeIncompACacheEnt(ACacheTab* tab) {
@@ -361,6 +390,25 @@ void removeIncompACacheEnt(ACacheTab* tab) {
             e = e->next;
         }
     }
+}
+
+void prtACacheEnt(const char* title, const ACacheEnt* e) {
+    size_t len = strlen(title);
+    size_t leftPad = (42 - len) / 2;
+    size_t rightPad = 44 - leftPad - len - 2;
+    for (size_t i = 0; i < leftPad; ++i) {
+        printf("=");
+    }
+    printf(" %s ", title);
+    for (size_t i = 0; i < rightPad; ++i) {
+        printf("=");
+    }
+    printf("\n");
+    char sMac[MAC_STR_LEN];
+    sprtMac(sMac, e->mac);
+    prtln("IP: %s  HWAddr: %s", e->IP, sMac);
+    prtln("interface index: %d  hard type: %u    sockfd: %d", e->ifindex, e->hatype, e->connfd);
+    prtln("================= Entry End ================\n");
 }
 
 int isACacheEntComplete(const ACacheEnt* ent) {

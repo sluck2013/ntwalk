@@ -67,6 +67,7 @@ ACacheTab* createACacheTab();
 ACacheEnt* findACacheEntByIP(const ACacheTab* tab, const char *IP);
 ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd);
 ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd);
+void prtACacheEnt(const char* title, const ACacheEnt* e);
 void removeIncompACacheEnt(ACacheTab* tab);
 int isACacheEntComplete(const ACacheEnt* e);
 

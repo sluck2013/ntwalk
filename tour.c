@@ -2,6 +2,8 @@
 #include "unp.h"
 #include "api.h"
 #include "common.h"
+#include "constants.h"
+#include "utility.h"
 
 int main(int argc, char** argv) {
     struct sockaddr_in IP;
@@ -13,6 +15,8 @@ int main(int argc, char** argv) {
     HWaddr.sll_halen = 3;
     strcpy(HWaddr.sll_addr, "1234");
     areq((SA*)&IP, sizeof(IP), &HWaddr);
-    printf("eth:%s\n", HWaddr.sll_addr);
+    char res[MAC_STR_LEN];
+    sprtMac(res, HWaddr.sll_addr);
+    printf("eth:%s\n", res);
     return 0;
 }

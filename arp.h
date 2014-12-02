@@ -54,7 +54,7 @@ short parseEthFrame(ARPMsg* arpMsg, const void* eth);
 LocalMap* getLocalMap();
 void prtLocalMap(const LocalMap* localMap);
 const LocalMap* getLocalMapEntByIP(const LocalMap* mp, const char *IP);
-void handleArpReply(const int iConnSock, const ARPMsg* arpMsg);
+void handleArpReply(const ARPMsg* arpMsg, const int iRawSock, const int iListenSock);
 void handleAppReq(const int iSock, const int iRawSock, int* iConnSock);
 void handleArpReq(const int iSock, ARPMsg* arpMsg, const struct sockaddr_ll* slSrcAddr);
 int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex);

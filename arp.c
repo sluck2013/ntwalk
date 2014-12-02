@@ -52,6 +52,11 @@ int main() {
             if (FD_ISSET(iDomSock, &fsRead)) {
                 handleAppReq(iDomSock, iRawSock, &iConnSock);
             }
+            if (iConnSock > 0 && FD_ISSET(iConnSock, &fsRead)) {
+                removeIncompACacheEnt(pARPCahceTab);
+                FD_CLR(iConnSock, &fsAll);
+                iMaxFd = max(iRawSock, iDomSock);
+            }
             if (FD_ISSET(iRawSock, &fsRead)) {
                 void* readBuf = malloc(ETH_FRAME_LEN);
                 struct sockaddr_ll srcAddr;
@@ -68,13 +73,8 @@ int main() {
                 if (arpMsg.op == ARP_REQ) {
                     handleArpReq(iRawSock, &arpMsg, &srcAddr);
                 } else if (arpMsg.op == ARP_REP) {
-                    handleArpReply(iConnSock, &arpMsg);
+                    handleArpReply(&arpMsg, iRawSock, iDomSock);
                 }
-            }
-            if (iConnSock > 0 && FD_ISSET(iConnSock, &fsRead)) {
-                removeIncompACacheEnt(pARPCahceTab);
-                FD_CLR(iConnSock, &fsAll);
-                iMaxFd = max(iRawSock, iDomSock);
             }
         }
     }
@@ -165,7 +165,7 @@ void prtLocalMap(const LocalMap* pLocalMap) {
     prtln("====== Local <IP addr, HW addr> found for eth0 END ======\n");
 }
 
-void handleArpReply(const int iConnSock, const ARPMsg* arpMsg) {
+void handleArpReply(const ARPMsg* arpMsg, const int iRawSock, const int iListenSock) {
     char sSrcMac[MAC_STR_LEN], sDestMac[MAC_STR_LEN], sTargetMac[MAC_STR_LEN];
     char sSrcIP[IP_STR_LEN], sTargetIP[IP_STR_LEN];
 
@@ -185,6 +185,10 @@ void handleArpReply(const int iConnSock, const ARPMsg* arpMsg) {
     prtln("================ ARP Reply End ==================\n");
 
     ACacheEnt* e = findACacheEntByIP(pARPCahceTab, sSrcIP);
+    if (e == NULL) {
+        //entry has been deleted due to timeout
+        return;
+    }
     updateACacheEnt(e, "", arpMsg->srcMac, -1, -1, -1);
     Hwaddr hwAddr;
     hwAddr.sll_ifindex = e->ifindex;
@@ -197,6 +201,10 @@ void handleArpReply(const int iConnSock, const ARPMsg* arpMsg) {
     inet_pton(AF_INET, e->IP, &IPAddr.sin_addr);
     marshalAreq(writeBuf, (SA*)&IPAddr, &hwAddr);
     write(e->connfd, writeBuf, sizeof(writeBuf));
+    close(e->connfd);
+    FD_CLR(e->connfd, &fsAll);
+    iMaxFd = max(iRawSock, iListenSock);
+    e->connfd = -1;
 }
 
 void handleArpReq(const int iRawSock, ARPMsg* arpMsg, const struct sockaddr_ll* slSrcAddr) {
@@ -251,7 +259,7 @@ void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
     unmarshalAreq(targetIP, &tourHwAddr, readBuf);
     //check cache table
     ACacheEnt* pEnt = findACacheEntByIP(pARPCahceTab, targetIP);
-    if (pEnt == NULL && pEnt->connfd > 0) {
+    if (pEnt == NULL) {
         insertIntoACacheTab(pARPCahceTab, targetIP, "\0\0\0\0\0\0", pLocalMap->ifIndex, ARPHRD_ETHER, *piConnSock);
         int n = sendARPRequest(iRawSock, targetIP);
         if (n <= 0) {
@@ -259,7 +267,7 @@ void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
         }
         FD_SET(*piConnSock, &fsAll);
         iMaxFd = max(iMaxFd, *piConnSock);
-    } else {
+    } else if (pEnt->connfd == -1) {
         unsigned char data[UXDOM_BUF_SIZE];
         tourHwAddr.sll_ifindex = pEnt->ifindex;
         tourHwAddr.sll_hatype = pEnt->hatype;
@@ -270,7 +278,6 @@ void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
         marshalAreq(data, (SA*)&IPaddr, &tourHwAddr);
         write(*piConnSock, data, sizeof(data));
     }
-
 }
 
 /*

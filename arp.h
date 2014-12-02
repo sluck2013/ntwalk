@@ -38,11 +38,24 @@ typedef struct ARPCacheTable {
 
 typedef enum {ARP_REQ = 1, ARP_REP = 2} ArpOp;
 
+typedef struct ARPMsg {
+    ArpOp op;
+    unsigned char destMac[ETH_ALEN];
+    unsigned char srcMac[ETH_ALEN]; //also senderMac
+    unsigned char targetMac[ETH_ALEN];
+    unsigned char srcIP[IP_LEN];
+    unsigned char targetIP[IP_LEN];
+} ARPMsg;
+
+void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* targetMac, const char* srcDecIP, const char* targetDecIP);
+short parseEthFrame(ARPMsg* arpMsg, const void* eth);
+
 LocalMap* getLocalMap();
 void prtLocalMap(const LocalMap* localMap);
+const LocalMap* getLocalMapEntByIP(const LocalMap* mp, const char *IP);
 void replyTour(const int iSock, const int iRawSock, int* iConnSock);
-int sendARPPacket(const int iSockfd, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* senderIP, const unsigned char* targetIP, const int iIfIndex, ArpOp arpOp);
-int sendARPRequest(const int iSockfd, const unsigned char* targetIP);
+int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex);
+int sendARPRequest(const int iSockfd, const char* targetIP);
 void sprtIP(char* dest, const unsigned char *src);
 void parseIP(unsigned char *dest, const char *src);
 

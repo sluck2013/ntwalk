@@ -1,1 +1,2 @@
 normalize exe file name
+etho compare alias

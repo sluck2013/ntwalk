@@ -13,11 +13,11 @@ int iMaxFd;
 fd_set fsAll;
 
 ACacheTab *pARPCahceTab;
-LocalMap *localMap;
+LocalMap *pLocalMap;
 
 int main() {
-    localMap = getLocalMap();
-    prtLocalMap(localMap);
+    pLocalMap = getLocalMap();
+    prtLocalMap(pLocalMap);
     pARPCahceTab = createACacheTab();
 
     struct sockaddr_un suArpAddr;
@@ -54,10 +54,14 @@ int main() {
             }
             if (FD_ISSET(iRawSock, &fsRead)) {
                 void* readBuf = malloc(ETH_FRAME_LEN);
-                prtln("SS:HERE");fflush(stdout);
-                int n = recvfrom(iRawSock, readBuf, ETH_FRAME_LEN, 0, NULL, NULL);
+                struct sockaddr_ll srcAddr;
+                int len = sizeof(srcAddr);
+                int n = recvfrom(iRawSock, readBuf, ETH_FRAME_LEN, 0, (SA*)&srcAddr, &len);
                 short *op = (short*)(readBuf + ETH_HLEN + 8);
-                prtln("op:%d", *op);fflush(stdout);
+                if (*op == ARP_REQ) {
+                    //getLocalMapEntByIP(pLocalMap, 
+                } else if (*op == ARP_REP) {
+                }
             }
             if (FD_ISSET(iConnSock, &fsRead)) {
                 removeIncompACacheEnt(pARPCahceTab);
@@ -66,8 +70,31 @@ int main() {
             }
         }
     }
-    //free(localMap);
+    //free(pLocalMap);
     return 0;
+}
+
+void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* targetMac, const char* srcDecIP, const char* targetDecIP) {
+    memcpy((void*)arpMsg->destMac, (void*)destMac, ETH_ALEN);
+    memcpy((void*)arpMsg->srcMac, (void*)srcMac, ETH_ALEN);
+    if (targetMac != NULL) {
+        memcpy((void*)arpMsg->targetMac, (void*)targetMac, ETH_ALEN);
+    } else {
+        memset((void*)arpMsg->targetMac, 0, ETH_ALEN);
+    }
+    parseIP(arpMsg->srcIP, srcDecIP);
+    parseIP(arpMsg->targetIP, targetDecIP);
+}
+
+short parseEthFrame(ARPMsg* msg, const void* eth) {
+    memcpy((void*)msg->destMac, eth, ETH_ALEN);
+    memcpy((void*)msg->srcMac, eth + ETH_ALEN, ETH_ALEN);
+    short typeId;
+    memcpy((void*)&typeId, eth + ETH_HLEN, 2);
+    memcpy((void*)&msg->op, eth + ETH_HLEN + 8, 2);
+    memcpy((void*)msg->srcIP, eth + ETH_HLEN + 10 + ETH_ALEN, IP_LEN);
+    memcpy((void*)msg->targetMac, eth + ETH_HLEN + 10 + ETH_ALEN + IP_LEN, ETH_ALEN);
+    memcpy((void*)msg->targetIP, eth + ETH_HLEN + 10 + 2 * ETH_ALEN + IP_LEN, IP_LEN);
 }
 
 /*
@@ -100,13 +127,24 @@ LocalMap* getLocalMap() {
     return mapHead;
 }
 
+const LocalMap* getLocalMapEntByIP(const LocalMap* mp, const char *IP) {
+    const LocalMap* p = mp;
+    while (p != NULL) {
+        if (strcmp(IP, p->IP)) {
+            return p;
+        }
+        p = p->next;
+    }
+    return NULL;
+}
+
 /* 
  * print <IP, HW addr> entries in LocalMap structure
- * @param localMap pointer to LocalMap struct to be printed
+ * @param pLocalMap pointer to LocalMap struct to be printed
  */
-void prtLocalMap(const LocalMap* localMap) {
+void prtLocalMap(const LocalMap* pLocalMap) {
     prtln("===== Local <IP addr, HW addr> found for eth0 BEGIN =====");
-    const LocalMap *lmPtr = localMap;
+    const LocalMap *lmPtr = pLocalMap;
     while (lmPtr != NULL) {
         char mac[MAC_STR_LEN];
         sprtMac(mac, lmPtr->mac);
@@ -229,26 +267,16 @@ int isACacheEntComplete(const ACacheEnt* ent) {
     return ent->connfd < 0;
 }
 
-int sendARPRequest(const int iSockfd, const unsigned char* targetIP) {
-    unsigned char destMac[ETH_ALEN], srcIPParsed[IP_LEN], targetIPParsed[IP_LEN];
-    memset((void*)destMac, 0xff, ETH_ALEN);
-    parseIP(srcIPParsed, localMap->IP);
-    parseIP(targetIPParsed, targetIP);
-#ifdef DEBUG
-    char ptSrcIP[IP_STR_LEN], ptDestIP[IP_STR_LEN];
-    sprtIP(ptSrcIP, srcIPParsed);
-    sprtIP(ptDestIP, targetIPParsed);
-    char m[MAC_STR_LEN], md[MAC_STR_LEN];
-    sprtMac(m, localMap->mac);
-    sprtMac(md, destMac);
-    prtln("sender:%s", ptSrcIP);
-    prtln("receiver:%s", ptDestIP);
-    prtln("index:%d", localMap->ifIndex);
-    prtln("localMac:%s", m);
-    prtln("destMac:%s", md);
-#endif
-    int n = sendARPPacket(iSockfd, destMac, localMap->mac, srcIPParsed, targetIPParsed, localMap->ifIndex, ARP_REQ);
-    prtln("sent:%d", n);
+int sendARPRequest(const int iSockfd, const char* targetIP) {
+    ARPMsg arpReqMsg;
+    arpReqMsg.op = ARP_REQ;
+    memset((void*)arpReqMsg.destMac, 0xff, ETH_ALEN);
+    memcpy((void*)arpReqMsg.srcMac, (void*)pLocalMap->mac, ETH_ALEN);
+    memset((void*)arpReqMsg.targetMac, 0, ETH_ALEN);
+    parseIP(arpReqMsg.srcIP, pLocalMap->IP);
+    parseIP(arpReqMsg.targetIP, targetIP);
+
+    return sendARPPacket(iSockfd, &arpReqMsg, pLocalMap->ifIndex);
 }
 
 void sprtIP(char* dest, const unsigned char *src) {
@@ -275,13 +303,13 @@ void parseIP(unsigned char *dest, const char *src) {
     }
 }
 
-int sendARPPacket(const int iSockfd, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* senderIP, const unsigned char* targetIP, const int iIfIndex, ArpOp arpOp) {
+int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex) {
     struct sockaddr_ll sockAddrRecv;
     void *buffer = malloc(ETH_FRAME_LEN);
 
     // fill ether header
-    memcpy(buffer, (void*)destMac, ETH_ALEN);
-    memcpy(buffer + ETH_ALEN, (void*)srcMac, ETH_ALEN);
+    memcpy(buffer, (void*)arpMsg->destMac, ETH_ALEN);
+    memcpy(buffer + ETH_ALEN, (void*)arpMsg->srcMac, ETH_ALEN);
     struct ethhdr *eh = (struct ethhdr*)buffer;
     eh->h_proto = htons(ARP_ETH_PROT);
 
@@ -298,12 +326,12 @@ int sendARPPacket(const int iSockfd, const unsigned char* destMac, const unsigne
     unsigned char* protSize = (unsigned char*)(payload + 7);
     *protSize = 4;
     short* op = (short*)(payload + 8);
-    *op = arpOp;
+    *op = arpMsg->op;
     
-    memcpy(payload + 10, srcMac, ETH_ALEN);
-    memcpy(payload + 10 + ETH_ALEN, senderIP, IP_LEN);
-    memcpy(payload + 10 + ETH_ALEN + IP_LEN, destMac, ETH_ALEN);
-    memcpy(payload + 10 + 2 * ETH_ALEN + IP_LEN, targetIP, IP_LEN); 
+    memcpy(payload + 10, (void*)arpMsg->srcMac, ETH_ALEN);
+    memcpy(payload + 10 + ETH_ALEN, (void*)arpMsg->srcIP, IP_LEN);
+    memcpy(payload + 10 + ETH_ALEN + IP_LEN, (void*)arpMsg->targetMac, ETH_ALEN);
+    memcpy(payload + 10 + 2 * ETH_ALEN + IP_LEN, (void*)arpMsg->targetIP, IP_LEN); 
     
     sockAddrRecv.sll_family = PF_PACKET;
     sockAddrRecv.sll_protocol = htons(ARP_ETH_PROT);
@@ -312,7 +340,7 @@ int sendARPPacket(const int iSockfd, const unsigned char* destMac, const unsigne
     sockAddrRecv.sll_pkttype = PACKET_OTHERHOST;
     sockAddrRecv.sll_halen = ETH_ALEN;
     memset(sockAddrRecv.sll_addr, 0, 8);
-    memcpy(sockAddrRecv.sll_addr, destMac, ETH_ALEN);
+    memcpy(sockAddrRecv.sll_addr, (void*)arpMsg->destMac, ETH_ALEN);
     
     return sendto(iSockfd, buffer, ETH_FRAME_LEN, 0, (SA*)&sockAddrRecv, sizeof(sockAddrRecv));
 }

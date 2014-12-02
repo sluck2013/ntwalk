@@ -18,15 +18,27 @@ int areq(struct sockaddr* IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr) 
     inet_ntop(AF_INET, &((struct sockaddr_in*)IPaddr)->sin_addr, IP, IP_STR_LEN);
     prtln("areq() called, targetIP: %s", IP);
     write(iSock, data, sizeof(data));
-    read(iSock, data, sizeof(data));
-    
-    unmarshalAreq(IP, HWaddr, data);
-    char mac[MAC_STR_LEN];
-    sprtMac(mac, HWaddr->sll_addr);
-    prtln("Received Response:");
-    prtln("    Ethernet Addr: %s", mac);
-    prtln("    Interface Index: %d", HWaddr->sll_ifindex);
-    prtln("    Hard Type: %u\n", HWaddr->sll_hatype);
-    inet_pton(AF_INET, IP, &((struct sockaddr_in*)IPaddr)->sin_addr);
-    return 0;
+    fd_set fsRead;
+    FD_ZERO(&fsRead);
+    FD_SET(iSock, &fsRead);
+    struct timeval tv;
+    tv.tv_sec = AREQ_TIMEOUT;
+    tv.tv_usec = 0;
+    int nReady = select(iSock + 1, &fsRead, NULL, NULL, &tv);
+    if (nReady > 0) {
+        if (FD_ISSET(iSock, &fsRead)) {
+            read(iSock, data, sizeof(data));
+            unmarshalAreq(IP, HWaddr, data);
+            char mac[MAC_STR_LEN];
+            sprtMac(mac, HWaddr->sll_addr);
+            prtln("Received Response:");
+            prtln("    Ethernet Addr: %s", mac);
+            prtln("    Interface Index: %d", HWaddr->sll_ifindex);
+            prtln("    Hard Type: %u\n", HWaddr->sll_hatype);
+            inet_pton(AF_INET, IP, &((struct sockaddr_in*)IPaddr)->sin_addr);
+            return 0;
+        }
+    }
+    //prtln("areq() time out!");
+    return 1;
 }

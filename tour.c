@@ -12,6 +12,7 @@ int main(int argc, char** argv) {
     HWaddr.sll_hatype = 2;
     HWaddr.sll_halen = 3;
     strcpy(HWaddr.sll_addr, "1234");
-    areq((SA*)&IP, sizeof(IP) + sizeof(HWaddr), &HWaddr);
+    areq((SA*)&IP, sizeof(IP), &HWaddr);
+    printf("eth:%s\n", HWaddr.sll_addr);
     return 0;
 }

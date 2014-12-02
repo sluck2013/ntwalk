@@ -61,15 +61,14 @@ int main() {
                 ARPMsg arpMsg;
                 short manId = parseEthFrame(&arpMsg, readBuf);
                 if (manId != ARP_MAN_ID) {
+                    prtln("Received Ethernet frame with ID=%d, omitted!", manId);
                     continue;
                 }
 
-                prtln("op:%d", arpMsg.op);
                 if (arpMsg.op == ARP_REQ) {
                     handleArpReq(iRawSock, &arpMsg, &srcAddr);
                 } else if (arpMsg.op == ARP_REP) {
-                    prtln("rep");
-                    return 0;
+                    handleArpReply(iConnSock, &arpMsg);
                 }
             }
             if (iConnSock > 0 && FD_ISSET(iConnSock, &fsRead)) {
@@ -163,13 +162,61 @@ void prtLocalMap(const LocalMap* pLocalMap) {
         prtln("    <%s, %s>", lmPtr->IP, mac);
         lmPtr = lmPtr->next;
     }
-    prtln("====== Local <IP addr, HW addr> found for eth0 END ======");
+    prtln("====== Local <IP addr, HW addr> found for eth0 END ======\n");
+}
+
+void handleArpReply(const int iConnSock, const ARPMsg* arpMsg) {
+    char sSrcMac[MAC_STR_LEN], sDestMac[MAC_STR_LEN], sTargetMac[MAC_STR_LEN];
+    char sSrcIP[IP_STR_LEN], sTargetIP[IP_STR_LEN];
+
+    //print
+    sprtMac(sSrcMac, arpMsg->srcMac);
+    sprtMac(sDestMac, arpMsg->destMac);
+    sprtMac(sTargetMac, arpMsg->targetMac);
+    sprtIP(sSrcIP, arpMsg->srcIP);
+    sprtIP(sTargetIP, arpMsg->targetIP);
+    prtln("=============== Received ARP Reply ==============");
+    prtln("* Ethernet Header");
+    prtln("    destination addr: %s", sDestMac);
+    prtln("    source addr     : %s", sSrcMac);
+    prtln("* ARP Reply                             ID: %d", ARP_MAN_ID);
+    prtln("    sender Eth addr: %s  sender IP: %s", sSrcMac, sSrcIP);
+    prtln("    target Eth addr: %s  target IP: %s", sTargetMac, sTargetIP);
+    prtln("================ ARP Reply End ==================\n");
+
+    ACacheEnt* e = findACacheEntByIP(pARPCahceTab, sSrcIP);
+    updateACacheEnt(e, "", arpMsg->srcMac, -1, -1, -1);
+    Hwaddr hwAddr;
+    hwAddr.sll_ifindex = e->ifindex;
+    hwAddr.sll_hatype = e->hatype;
+    prtln("e->hatype %u", e->hatype);
+    hwAddr.sll_halen = ETH_ALEN;
+    memcpy((void*)hwAddr.sll_addr, (void*)e->mac, ETH_ALEN);
+    unsigned char writeBuf[UXDOM_BUF_SIZE];
+    struct sockaddr_in IPAddr;
+    inet_pton(AF_INET, e->IP, &IPAddr.sin_addr);
+    marshalAreq(writeBuf, (SA*)&IPAddr, &hwAddr);
+    write(e->connfd, writeBuf, sizeof(writeBuf));
 }
 
 void handleArpReq(const int iRawSock, ARPMsg* arpMsg, const struct sockaddr_ll* slSrcAddr) {
     char srcIP[IP_STR_LEN], targetIP[IP_STR_LEN];
     sprtIP(srcIP, arpMsg->srcIP);
     sprtIP(targetIP, arpMsg->targetIP);
+    char sDestMac[MAC_STR_LEN], sSrcMac[MAC_STR_LEN];
+    sprtMac(sDestMac, arpMsg->destMac);
+    sprtMac(sSrcMac, arpMsg->srcMac);
+    
+    //print info
+    prtln("============== Received ARP Request ==============");
+    prtln("* Ethernet Header");
+    prtln("    destination addr: %s", sDestMac);
+    prtln("    source addr     : %s", sSrcMac);
+    prtln("* ARP Request                           ID: %d", ARP_MAN_ID);
+    prtln("    sender Eth addr: %s  sender IP: %s", sSrcMac, srcIP);
+    prtln("    target Eth addr:                    target IP: %s", targetIP);
+    prtln("=============== ARP Request End =================\n");
+
     ACacheEnt* e = findACacheEntByIP(pARPCahceTab, srcIP);
     const LocalMap *lm = getLocalMapEntByIP(pLocalMap, targetIP);
     if (e == NULL) {
@@ -197,24 +244,15 @@ void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
         }
     }
 
-    unsigned char readBuf[IP_STR_LEN + HWADDR_SIZE + 1];
-    read(*piConnSock, readBuf, IP_STR_LEN + HWADDR_SIZE + 1);
+    unsigned char readBuf[UXDOM_BUF_SIZE];
+    read(*piConnSock, readBuf, UXDOM_BUF_SIZE);
     char targetIP[IP_STR_LEN];
     Hwaddr tourHwAddr;
     unmarshalAreq(targetIP, &tourHwAddr, readBuf);
-#ifdef DEBUG
-    prtln("===== recv from application =====");
-    prtln("IP:%s", targetIP);
-    prtln("index:%d", tourHwAddr.sll_ifindex);
-    prtln("hatype:%d", tourHwAddr.sll_hatype);
-    prtln("halen:%d", tourHwAddr.sll_halen);
-    prtln("addr:%s", tourHwAddr.sll_addr);
-    prtln("=================================");
-#endif
     //check cache table
     ACacheEnt* pEnt = findACacheEntByIP(pARPCahceTab, targetIP);
-    if (pEnt == NULL) {
-        insertIntoACacheTab(pARPCahceTab, targetIP, "\0\0\0\0\0\0", tourHwAddr.sll_ifindex, tourHwAddr.sll_hatype, *piConnSock);
+    if (pEnt == NULL && pEnt->connfd > 0) {
+        insertIntoACacheTab(pARPCahceTab, targetIP, "\0\0\0\0\0\0", pLocalMap->ifIndex, ARPHRD_ETHER, *piConnSock);
         int n = sendARPRequest(iRawSock, targetIP);
         if (n <= 0) {
             prtErr(ERR_SEND_ARP_REQ);
@@ -222,8 +260,15 @@ void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
         FD_SET(*piConnSock, &fsAll);
         iMaxFd = max(iMaxFd, *piConnSock);
     } else {
-        unsigned char data[IP_STR_LEN + HWADDR_SIZE];
-        //sendBack
+        unsigned char data[UXDOM_BUF_SIZE];
+        tourHwAddr.sll_ifindex = pEnt->ifindex;
+        tourHwAddr.sll_hatype = pEnt->hatype;
+        tourHwAddr.sll_halen = ETH_ALEN;
+        memcpy((void*)tourHwAddr.sll_addr, (void*)pEnt->mac, ETH_ALEN);
+        struct sockaddr_in IPaddr;
+        inet_pton(AF_INET, targetIP, &IPaddr.sin_addr);
+        marshalAreq(data, (SA*)&IPaddr, &tourHwAddr);
+        write(*piConnSock, data, sizeof(data));
     }
 
 }
@@ -250,6 +295,7 @@ ACacheEnt* findACacheEntByIP(const ACacheTab* tab, const char* IP) {
         if (strcmp(p->IP, IP) == 0) {
             return p;
         }
+        p = p->next;
     }
     return NULL;
 }
@@ -275,11 +321,21 @@ ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned ch
 }
 
 ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd) {
-    strcpy(e->IP, IP);
-    memcpy(e->mac, mac, ETH_ALEN);
-    e->ifindex = ifindex;
-    e->hatype = hatype;
-    e->connfd = connfd;
+    if (IP != NULL) {
+       strcpy(e->IP, IP);
+    }
+    if (mac != NULL) {
+        memcpy(e->mac, mac, ETH_ALEN);
+    }
+    if (ifindex != -1) {
+        e->ifindex = ifindex;
+    }
+    if (hatype != -1) {
+        e->hatype = hatype;
+    }
+    if (connfd != -1) {
+        e->connfd = connfd;
+    }
 }
 
 void removeIncompACacheEnt(ACacheTab* tab) {
@@ -313,6 +369,19 @@ int sendARPRequest(const int iSockfd, const char* targetIP) {
     parseIP(arpReqMsg.srcIP, pLocalMap->IP);
     parseIP(arpReqMsg.targetIP, targetIP);
 
+    //print info
+    char sDestMac[MAC_STR_LEN], sSrcMac[MAC_STR_LEN];
+    sprtMac(sDestMac, arpReqMsg.destMac);
+    sprtMac(sSrcMac, arpReqMsg.srcMac);
+    prtln("============== Sending ARP Request ==============");
+    prtln("* Ethernet Header");
+    prtln("    destination addr: %s", sDestMac);
+    prtln("    source addr     : %s", sSrcMac);
+    prtln("* ARP Request                           ID: %d", ARP_MAN_ID);
+    prtln("    sender Eth addr: %s  sender IP: %s", sSrcMac, pLocalMap->IP);
+    prtln("    target Eth addr:                    target IP: %s", targetIP);
+    prtln("=============== ARP Request End =================\n");
+
     return sendARPPacket(iSockfd, &arpReqMsg, pLocalMap->ifIndex);
 } 
 
@@ -327,18 +396,23 @@ int sendARPReply(const int iSockfd, ARPMsg* arpMsg, const int ifindex) {
     memcpy((void*)arpMsg->srcIP, (void*)arpMsg->targetIP, IP_LEN);
     memcpy((void*)arpMsg->targetIP, (void*)tmpIP, IP_LEN);
 
-    char ptDestMac[MAC_STR_LEN], ptTargetMac[MAC_STR_LEN], ptSrcMac[MAC_STR_LEN];
-    char ptSrcIP[IP_STR_LEN], ptTargetIP[IP_STR_LEN];
-    sprtMac(ptDestMac, arpMsg->destMac);
-    sprtMac(ptTargetMac, arpMsg->targetMac);
-    sprtMac(ptSrcMac, arpMsg->srcMac);
-    sprtIP(ptSrcIP, arpMsg->srcIP);
-    sprtIP(ptTargetIP, arpMsg->targetIP);
-    prtln("destMac: %s", ptDestMac);
-    prtln("targetMac: %s", ptTargetMac);
-    prtln("srcMac: %s", ptSrcMac);
-    prtln("srcIP: %s", ptSrcIP);
-    prtln("targetIP: %s", ptTargetIP);
+    //print info
+    char sDestMac[MAC_STR_LEN], sTargetMac[MAC_STR_LEN], sSrcMac[MAC_STR_LEN];
+    char sSrcIP[IP_STR_LEN], sTargetIP[IP_STR_LEN];
+    sprtMac(sDestMac, arpMsg->destMac);
+    sprtMac(sTargetMac, arpMsg->targetMac);
+    sprtMac(sSrcMac, arpMsg->srcMac);
+    sprtIP(sSrcIP, arpMsg->srcIP);
+    sprtIP(sTargetIP, arpMsg->targetIP);
+
+    prtln("=============== Sending ARP Reply ===============");
+    prtln("* Ethernet Header");
+    prtln("    destination addr: %s", sDestMac);
+    prtln("    source addr     : %s", sSrcMac);
+    prtln("* ARP Reply                             ID: %d", ARP_MAN_ID);
+    prtln("    sender Eth addr: %s  sender IP: %s", sSrcMac, sSrcIP);
+    prtln("    target Eth addr: %s  target IP: %s", sTargetMac, sTargetIP);
+    prtln("================ ARP Reply End ==================\n");
 
     return sendARPPacket(iSockfd, arpMsg, ifindex);
 }

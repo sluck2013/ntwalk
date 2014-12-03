@@ -6,6 +6,8 @@
 
 int prtln(const char* format, ...);
 void sprtMac(char* dest, const unsigned char* mac);
+void parseIP(unsigned char *dest, const char *src);
+void sprtIP(char* dest, const unsigned char *src);
 void prtErr(const char* msg);
 void errExit(const char* msg);
 

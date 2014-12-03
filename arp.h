@@ -60,8 +60,7 @@ void handleArpReq(const int iSock, ARPMsg* arpMsg, const struct sockaddr_ll* slS
 int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex);
 int sendARPRequest(const int iSockfd, const char* targetIP);
 int sendARPReply(const int iSockfd, ARPMsg* arpMsg, const int ifindex);
-void sprtIP(char* dest, const unsigned char *src);
-void parseIP(unsigned char *dest, const char *src);
+
 
 ACacheTab* createACacheTab();
 ACacheEnt* findACacheEntByIP(const ACacheTab* tab, const char *IP);

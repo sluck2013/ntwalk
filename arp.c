@@ -472,30 +472,6 @@ int sendARPReply(const int iSockfd, ARPMsg* arpMsg, const int ifindex) {
     return sendARPPacket(iSockfd, arpMsg, ifindex);
 }
 
-void sprtIP(char* dest, const unsigned char *src) {
-    dest[0] = '\0';
-    for (int i = 0; i < IP_LEN; ++i) {
-        char seg[5];
-        if (i > 0) {
-            sprintf(seg, ".%d", src[i]);
-        } else {
-            sprintf(seg, "%d", src[i]);
-        }
-        strcat(dest, seg);
-    }
-}
-
-void parseIP(unsigned char *dest, const char *src) {
-    char src2[IP_STR_LEN];
-    strcpy(src2, src);
-    char* p = strtok(src2, ".");
-    dest[0] = atoi(p);
-    for (int i = 1; i < 4; ++i) {
-        p = strtok(NULL, ".");
-        dest[i] = atoi(p);
-    }
-}
-
 int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex) {
     struct sockaddr_ll sockAddrRecv;
     void *buffer = malloc(ETH_FRAME_LEN);

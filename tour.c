@@ -25,6 +25,11 @@ int main(int argc, char** argv) {
     int on = 1;
     setsockopt(iSockRt, IPPROTO_IP, IP_HDRINCL, &on, sizeof(on));
 
+    int iSockPg = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (iSockPg < 0) {
+        errExit(ERR_CREATE_PG);
+    }
+
     int iSockICMP = socket(PF_PACKET, SOCK_RAW, ETH_P_IP);
     if (iSockICMP < 0) {
         errExit(ERR_CREATE_ICMP);
@@ -43,7 +48,8 @@ int main(int argc, char** argv) {
     fd_set fsAll, fsRead;
     FD_ZERO(&fsAll);
     FD_SET(iSockRt, &fsAll);
-    int iMaxFd = iSockRt;
+    FD_SET(iSockPg, &fsAll);
+    int iMaxFd = max(iSockRt, iSockPg);
 
     while (1) {
         fsRead = fsAll;
@@ -51,6 +57,9 @@ int main(int argc, char** argv) {
         if (iReadyNum > 0) {
             if (FD_ISSET(iSockRt, &fsRead)) {
                 handleRoutingMsg(iSockRt, iSockICMP, iSockUdp);
+            }
+            if (FD_ISSET(iSockPg, &fsRead)) {
+                handleICMPMsg(iSockPg);
             }
         }
     }
@@ -79,6 +88,28 @@ int joinMulticast(const int iSockfd, const char* grpIP, const unsigned short grp
     bind(iSockfd, (SA*)&mcastAddr, sizeof(mcastAddr));
     mcast_set_ttl(iSockfd, 1);
     return mcast_join(iSockfd, (SA*)&mcastAddr, sizeof(mcastAddr), NULL, 0); 
+}
+
+void handleICMPMsg(const int iSockPg) {
+    unsigned char data[RT_PACKET_SIZE];
+    struct sockaddr_in srcAddr;
+    int srcAddrLen = sizeof(srcAddr);
+    int n = recvfrom(iSockPg, data, RT_PACKET_SIZE, 0, (SA*)&srcAddr, &srcAddrLen);
+    prtln("recv:%d", n);
+
+    struct ip* ipHdr = (struct ip*)data;
+    prtln("iD:%u", ntohs(ipHdr->ip_id));
+    struct icmphdr* icmpHdr = (struct icmphdr*)data + 20;
+    prtln("type:%u", icmpHdr->type);
+    if (icmpHdr->type == ICMP_ECHO) {
+        prtln("icmp request");
+    } else if (icmpHdr->type == ICMP_ECHOREPLY) {
+        prtln("icmp reply");
+    }
+
+    char ip[500];
+    inet_ntop(AF_INET, &srcAddr.sin_addr, ip, 500);
+    prtln("from:%s", ip);
 }
 
 void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp) {
@@ -166,7 +197,7 @@ int relayRoutingMsg(const int iSockRt, unsigned char* data) {
 int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP) {
     struct sockaddr_ll destAddr;
     void* buffer = malloc(ETH_FRAME_LEN);
-    unsigned char* data = buffer + 14;
+    unsigned char* data = buffer + ETH_HLEN;
 
     destAddr.sll_family = PF_PACKET;
     destAddr.sll_protocol = htons(ETH_P_IP);
@@ -188,7 +219,7 @@ int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP
     ipHdr->ip_v = 4;
     ipHdr->ip_hl = sizeof(*ipHdr) >> 2;
     ipHdr->ip_tos = 0;
-    ipHdr->ip_len = htons(ETH_FRAME_LEN - 14);
+    ipHdr->ip_len = htons(76 + sizeof(struct icmphdr));
     ipHdr->ip_id = htons(IPID_ICMP);
     ipHdr->ip_off = 0;
     ipHdr->ip_ttl = 255;
@@ -205,14 +236,14 @@ int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP
     icmpHdr->code = 0;
     icmpHdr->un.echo.id = htons((unsigned short)getpid());
     icmpHdr->un.echo.sequence = htons(getPingSeqNum());
-    struct timeval* icmpData = (struct timeval*)data + sizeof(struct icmphdr);
+    struct timeval* icmpData = (struct timeval*)data + 20 + sizeof(struct icmphdr);
     Gettimeofday(icmpData, NULL);
     int datalen = 56;
     int len = datalen + 8;
 
     icmpHdr->checksum = 0;
-    icmpHdr->checksum = in_cksum((unsigned short*) icmpHdr, len);
-    return sendto(iSockfd, buffer, ETH_FRAME_LEN, 0, (SA*)&destAddr, sizeof(destAddr));
+    icmpHdr->checksum = in_cksum((unsigned short*)icmpHdr, len);
+    return sendto(iSockfd, buffer, ETH_HLEN + 20 + len, 0, (SA*)&destAddr, sizeof(destAddr));
 }
 
 unsigned short getPingSeqNum() {

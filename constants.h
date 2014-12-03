@@ -27,5 +27,6 @@
 #define ERR_CREATE_RT "Socket rt was not created!"
 #define ERR_CREATE_UDP "UDP Socket was not created!"
 #define ERR_CREATE_ICMP "ICMP socket was not created!"
+#define ERR_CREATE_PG "Socket pg was not created!"
 
 #endif

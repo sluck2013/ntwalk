@@ -20,5 +20,6 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
 int joinMulticast(const int iSockfd, const char* grpIP, const unsigned short grpPort);
 unsigned short getPingSeqNum();
 int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP);
+void handleICMPMsg(const int iSockPg);
 
 #endif

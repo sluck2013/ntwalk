@@ -15,6 +15,7 @@ char* getHostNameByAddr(char* name, struct sockaddr_in* sa);
 char* getLocalIP(char* IP);
 unsigned char* getLocalMac(unsigned char* mac);
 int sendRoutingMsg(const int iSockfd, const int hostNum, char** hostList);
+int relayRoutingMsg(const int iSockfd, unsigned char* data);
 void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp);
 int joinMulticast(const int iSockfd, const char* grpIP, const unsigned short grpPort);
 unsigned short getPingSeqNum();

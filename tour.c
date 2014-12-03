@@ -100,10 +100,11 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
             ctime(&curTime), getHostNameByAddr(senderHostName, &srcAddr));
 
     // join multicast group
+    unsigned char* payload = data + 20;
     if (!isVisited) {
         char grpIP[IP_STR_LEN];
-        sprtIP(grpIP, data + 22);
-        unsigned short* grpPort = (unsigned short*)data + 22 + IP_LEN;
+        sprtIP(grpIP, payload + 2);
+        unsigned short* grpPort = (unsigned short*)payload + 2 + IP_LEN;
         joinMulticast(iSockUdp, grpIP, ntohs(*grpPort));
     }
     isVisited = 1;
@@ -122,6 +123,44 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
         inet_ntop(AF_INET, &ipHdr->ip_src, targetIP, IP_STR_LEN);
         int n = sendICMP(iSockICMP, &targetHwAddr, targetIP);
     }
+    
+    // relay routing pkg to next node
+    // WARNING:d data will be modified after call
+    relayRoutingMsg(iSockRt, data);
+}
+
+int relayRoutingMsg(const int iSockRt, unsigned char* data) {
+    struct ip* ipHdr = (struct ip*)data;
+    unsigned char *usrData = data + 20;
+    unsigned short *pNextOffset = (unsigned short*)usrData;
+    unsigned short nextOffset = ntohs(*pNextOffset);
+    if (nextOffset == 0) {
+        return 0;
+    }
+
+    char nextIP[IP_STR_LEN];
+    sprtIP(nextIP, usrData + nextOffset);
+    prtln("next offset:%u", nextOffset);
+    prtln("next ip:%s", nextIP);
+    nextOffset += IP_LEN;
+    if (nextOffset + 20 > RT_PACKET_SIZE) {
+        nextOffset = 0;
+    }
+    unsigned char* next1stByte = (unsigned char*)usrData + nextOffset;
+    if (*next1stByte == 0) {
+        nextOffset = 0;
+    }
+    *pNextOffset = htons(nextOffset);
+
+    char localIP[IP_STR_LEN];
+    inet_pton(AF_INET, nextIP, &ipHdr->ip_dst);
+    inet_pton(AF_INET, getLocalIP(localIP), &ipHdr->ip_src);
+
+    struct sockaddr_in dstAddr;
+    dstAddr.sin_family = AF_INET;
+    dstAddr.sin_port = htons(0);
+    inet_pton(AF_INET, nextIP, &dstAddr.sin_addr);
+    return sendto(iSockRt, data, RT_PACKET_SIZE, 0, (SA*)&dstAddr, sizeof(dstAddr));
 }
 
 int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP) {
@@ -244,10 +283,10 @@ int sendRoutingMsg(const int iSockfd, const int hostNum, char** hostList) {
     //fill payload data
     unsigned short* nextOffset = (unsigned short*)usrData;
     //offset from usrData
-    if (hostNum > 1) {
+    if (hostNum <= 1) {
         *nextOffset = htons(0);
     } else {
-        *nextOffset = 4 + 2 * IP_LEN;
+        *nextOffset = htons(4 + 2 * IP_LEN);
     }
 
     parseIP(usrData + 2, TOUR_MCAST_IP);

@@ -231,19 +231,21 @@ int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP
     ipHdr->ip_sum = in_cksum((unsigned short*)ipHdr, 20);
 
     //fill payload
-    struct icmphdr* icmpHdr = (struct icmphdr*)data + 20;
-    icmpHdr->type = ICMP_ECHO;
-    icmpHdr->code = 0;
-    icmpHdr->un.echo.id = htons((unsigned short)getpid());
-    icmpHdr->un.echo.sequence = htons(getPingSeqNum());
-    struct timeval* icmpData = (struct timeval*)data + 20 + sizeof(struct icmphdr);
-    Gettimeofday(icmpData, NULL);
+    struct icmp* icmpHdr = (struct icmp*)(data + 20);
     int datalen = 56;
+    icmpHdr->icmp_type = ICMP_ECHO;
+    icmpHdr->icmp_code = 0;
+    icmpHdr->icmp_id = (unsigned short)getpid();
+    icmpHdr->icmp_seq = getPingSeqNum();
+    memset(icmpHdr->icmp_data, 0xa5, datalen);
+    Gettimeofday((struct timeval*)icmpHdr->icmp_data, NULL);
     int len = datalen + 8;
 
-    icmpHdr->checksum = 0;
-    icmpHdr->checksum = in_cksum((unsigned short*)icmpHdr, len);
-    return sendto(iSockfd, buffer, ETH_HLEN + 20 + len, 0, (SA*)&destAddr, sizeof(destAddr));
+    icmpHdr->icmp_cksum = 0;
+    icmpHdr->icmp_cksum = in_cksum((unsigned short*)icmpHdr, len);
+    int n = sendto(iSockfd, buffer, ETH_HLEN + 20 + len, 0, (SA*)&destAddr, sizeof(destAddr));
+    prtln("PING vm*** (%s): %d data bytes", targetIP, n);
+    return n;
 }
 
 unsigned short getPingSeqNum() {

@@ -1,2 +1,3 @@
 normalize exe file name
-etho compare alias
+
+Readme: must restart

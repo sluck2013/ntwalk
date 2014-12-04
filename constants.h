@@ -16,7 +16,7 @@
 #define IPID_RT (10939)
 #define IPID_ICMP (9621)
 #define RT_PACKET_SIZE (1500)
-#define TOUR_MCAST_IP "130.245.147.245"
+#define TOUR_MCAST_IP "230.245.147.245"
 #define TOUR_MCAST_PORT (10939)
 
 #define ERR_ARP_CREATE_RAW_SOCK "Cannot create PF_PACKET socket!"

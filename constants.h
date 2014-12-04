@@ -28,5 +28,6 @@
 #define ERR_CREATE_UDP "UDP Socket was not created!"
 #define ERR_CREATE_ICMP "ICMP socket was not created!"
 #define ERR_CREATE_PG "Socket pg was not created!"
+#define ERR_JOIN_MCAST "Cannot join multicast group!"
 
 #endif

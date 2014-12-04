@@ -16,6 +16,7 @@ int iSockICMP;
 int iSockUdp;
 int iRecvICMPCtr = 0;
 int isLastNode = 0;
+int iRecvingPing = 0;
 
 int main(int argc, char** argv) {
 
@@ -42,7 +43,6 @@ int main(int argc, char** argv) {
     }
 
     iSockUdp = socket(AF_INET, SOCK_DGRAM, 0);
-    setsockopt(iSockUdp, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
     if (iSockUdp < 0) {
         errExit(ERR_CREATE_UDP);
     }
@@ -56,22 +56,33 @@ int main(int argc, char** argv) {
     FD_ZERO(&fsAll);
     FD_SET(iSockRt, &fsAll);
     FD_SET(iSockPg, &fsAll);
+    FD_SET(iSockUdp, &fsAll);
     int iMaxFd = max(iSockRt, iSockPg);
     iMaxFd = max(iMaxFd, iSockUdp);
 
     while (1) {
         fsRead = fsAll;
+        prtln("entered select");
         int iReadyNum = select(iMaxFd + 1, &fsRead, NULL, NULL, NULL);
         if (iReadyNum > 0) {
             if (FD_ISSET(iSockRt, &fsRead)) {
+                prtln("++++++ rt ++++++");
                 handleRoutingMsg(iSockRt, iSockICMP, iSockUdp);
             }
-            if (FD_ISSET(iSockPg, &fsRead)) {
-                handleICMPMsg(iSockPg, iSockUdp);
-            }
             if (FD_ISSET(iSockUdp, &fsRead)) {
+                prtln("++++++ udp ++++++");
                 handleMCastMsg(iSockUdp);
             }
+            if (FD_ISSET(iSockPg, &fsRead)) {
+                prtln("++++++ pg ++++++");
+                handleICMPMsg(iSockPg, iSockUdp);
+            }
+        } else if (iReadyNum < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+        } else {
+            continue;
         }
     }
     return 0;
@@ -81,8 +92,13 @@ void handleMCastMsg(const int iSockUdp) {
     char buffer[MAXLINE];
     struct sockaddr_in srcAddr;
     int iAddrLen = sizeof(srcAddr);
+    alarm(0);
     recvfrom(iSockUdp, buffer, MAXLINE, 0, (SA*)&srcAddr, &iAddrLen);
+    char srcIP[IP_STR_LEN];
+    inet_ntop(AF_INET, &srcAddr.sin_addr, srcIP, IP_STR_LEN);
     prtln("%s", buffer);
+    //isVisited = 0;
+    //isLastNode = 0;
 }
 
 int joinMulticast(const int iSockfd, const char* grpIP, const unsigned short grpPort) {
@@ -104,6 +120,9 @@ void handleICMPMsg(const int iSockPg, const int iSockUdp) {
 
     struct icmp* icmpHdr = (struct icmp*)(data + 20);
     unsigned char icmpType = icmpHdr->icmp_type;
+    if (icmpType == ICMP_ECHO) {
+        iRecvingPing = 1;
+    }
     if (icmpType != ICMP_ECHOREPLY) {
         return;
     }
@@ -124,9 +143,9 @@ void handleICMPMsg(const int iSockPg, const int iSockUdp) {
 int sendMCastMsg(const int iSockUdp) {
     char sendBuf[1024];
     char localHost[10];
-    char localIP[IP_STR_LEN];
-    getHostNameByIP(localHost, getLocalIP(localIP));
+    gethostname(localHost, sizeof(localHost));
     sprintf(sendBuf, "<<<<< This is node %s. Tour has ended. Group members please identify yourselves. >>>>>", localHost);
+    prtln("%s", sendBuf);
     struct sockaddr_in dstAddr;
     dstAddr.sin_family = AF_INET;
     dstAddr.sin_port = htons(TOUR_MCAST_PORT);
@@ -158,7 +177,11 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
         char grpIP[IP_STR_LEN];
         sprtIP(grpIP, payload + 2);
         unsigned short* grpPort = (unsigned short*)payload + 2 + IP_LEN;
-        joinMulticast(iSockUdp, grpIP, ntohs(*grpPort));
+        int r = joinMulticast(iSockUdp, grpIP, ntohs(*grpPort));
+        if (r < 0) {
+            prtErr(ERR_JOIN_MCAST);
+        }
+        prtln("joined mcast group");
 
         // send ping
         iaPingTarget = ipHdr->ip_src;

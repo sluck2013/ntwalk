@@ -23,7 +23,8 @@ int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP
 void handleICMPMsg(const int iSockPg, const int sockUdp);
 void ping();
 void pingAlarm(int signo);
-int sendMCastMsg(const int iSockUdp);
+void exitAlarm(int signo);
+int sendMCastMsg(const int iSockUdp, const char* msg, const size_t msgSize);
 void handleMCastMsg(const int iSockUdp);
 
 #endif

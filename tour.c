@@ -16,6 +16,9 @@ int iSockICMP;
 int iSockUdp;
 int iRecvICMPCtr = 0;
 int isLastNode = 0;
+int isPinging= 0;
+unsigned short uMCastPort;
+char sMCastIP[IP_STR_LEN];
 
 int main(int argc, char** argv) {
     int iSockRt = socket(AF_INET, SOCK_RAW, IPPROTO_RT);
@@ -53,23 +56,21 @@ int main(int argc, char** argv) {
     if (argc > 1) {
         sendRoutingMsg(iSockRt, argc - 1, &argv[1]);
         joinMulticast(iSockUdp, TOUR_MCAST_IP, TOUR_MCAST_PORT);
+        uMCastPort = TOUR_MCAST_PORT;
+        strcpy(sMCastIP, TOUR_MCAST_IP);
     }
 
     while (1) {
         fsRead = fsAll;
-        prtln("entered select, maxfd:%d", iMaxFd);
         int iReadyNum = select(iMaxFd + 1, &fsRead, NULL, NULL, NULL);
         if (iReadyNum > 0) {
             if (FD_ISSET(iSockRt, &fsRead)) {
-                prtln("++++++ rt ++++++");
                 handleRoutingMsg(iSockRt, iSockICMP, iSockUdp, &fsAll, &iMaxFd);
             }
             if (FD_ISSET(iSockUdp, &fsRead)) {
-                prtln("++++++ udp ++++++");
                 handleMCastMsg(iSockUdp);
             }
             if (FD_ISSET(iSockPg, &fsRead)) {
-                prtln("++++++ pg ++++++");
                 handleICMPMsg(iSockPg, iSockUdp);
             }
         } else if (iReadyNum < 0) {
@@ -87,11 +88,26 @@ void handleMCastMsg(const int iSockUdp) {
     char buffer[MAXLINE];
     struct sockaddr_in srcAddr;
     int iAddrLen = sizeof(srcAddr);
-    alarm(0);
+    if (isPinging) {
+        alarm(0);
+        isPinging = 0;
+#ifdef DEBUG
+        prtln("Ping stopped!");
+#endif
+    }
+
     recvfrom(iSockUdp, buffer, MAXLINE, 0, (SA*)&srcAddr, &iAddrLen);
-    char srcIP[IP_STR_LEN];
-    inet_ntop(AF_INET, &srcAddr.sin_addr, srcIP, IP_STR_LEN);
-    prtln("%s", buffer);
+    char localHost[10];
+    gethostname(localHost, sizeof(localHost));
+    prtln("Node %s. Received %s", localHost, buffer);
+
+    if (strstr(buffer, "identify") != NULL) {
+        sprintf(buffer, "<<<<< Node %s. I am a member of the group. >>>>>", localHost);
+        sendMCastMsg(iSockUdp, buffer, MAXLINE);
+    }
+
+    Signal(SIGALRM, exitAlarm);
+    alarm(5);
     //isVisited = 0;
     //isLastNode = 0;
 }
@@ -119,30 +135,37 @@ void handleICMPMsg(const int iSockPg, const int iSockUdp) {
         return;
     }
     
-    if (++iRecvICMPCtr >= 5 && isLastNode) {
 #ifdef DEBUG
-        prtln("ping stopped!");
-        sendMCastMsg(iSockUdp);
+    char srcHost[128];
+    getHostNameByAddr(srcHost, &srcAddr);
+    prtln("Received ping reply from %s", srcHost);
 #endif
+    if (++iRecvICMPCtr >= 5 && isLastNode) {
+        if (!isPinging) {
+            return;
+        }
+#ifdef DEBUG
+        prtln("Ping stopped!");
+#endif
+        char sendBuf[1024];
+        char localHost[10];
+        gethostname(localHost, sizeof(localHost));
+        sprintf(sendBuf, "<<<<< This is node %s. Tour has ended. Group members please identify yourselves. >>>>>", localHost);
+        sendMCastMsg(iSockUdp, sendBuf, sizeof(sendBuf));
         alarm(0);
+        isPinging = 0;
     }
-    prtln("recvICMP: %d", iRecvICMPCtr);
-    char ip[500];
-    inet_ntop(AF_INET, &srcAddr.sin_addr, ip, 500);
-    prtln("from:%s", ip);
 }
 
-int sendMCastMsg(const int iSockUdp) {
-    char sendBuf[1024];
+int sendMCastMsg(const int iSockUdp, const char* msg, const size_t msgSize) {
     char localHost[10];
     gethostname(localHost, sizeof(localHost));
-    sprintf(sendBuf, "<<<<< This is node %s. Tour has ended. Group members please identify yourselves. >>>>>", localHost);
-    prtln("%s", sendBuf);
+    prtln("Node %s. Sending: %s", localHost, msg);
     struct sockaddr_in dstAddr;
     dstAddr.sin_family = AF_INET;
-    dstAddr.sin_port = htons(TOUR_MCAST_PORT);
-    inet_pton(AF_INET, TOUR_MCAST_IP, &dstAddr.sin_addr);
-    return sendto(iSockUdp, sendBuf, sizeof(sendBuf), 0, (SA*)&dstAddr, sizeof(dstAddr));
+    dstAddr.sin_port = htons(uMCastPort);
+    inet_pton(AF_INET, sMCastIP, &dstAddr.sin_addr);
+    return sendto(iSockUdp, msg, msgSize, 0, (SA*)&dstAddr, sizeof(dstAddr));
 }
 
 void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp, fd_set* pfs, int* maxfd) {
@@ -169,15 +192,15 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
         char grpIP[IP_STR_LEN];
         sprtIP(grpIP, payload + 2);
         unsigned short* grpPort = (unsigned short*)(payload + 2 + IP_LEN);
-        int r = joinMulticast(iSockUdp, grpIP, ntohs(*grpPort));
-        prtln("grpIP: %s:%u", grpIP, ntohs(*grpPort));
-        //int r = joinMulticast(iSockUdp, TOUR_MCAST_IP, TOUR_MCAST_PORT);
+        strcpy(sMCastIP, grpIP);
+        uMCastPort = ntohs(*grpPort);
+        int r = joinMulticast(iSockUdp, sMCastIP, uMCastPort);
         if (r < 0) {
             prtErr(ERR_JOIN_MCAST);
         }
-        prtln("joined mcast group");
-        //FD_SET(iSockUdp, pfs);
-        //*maxfd = max(*maxfd, iSockUdp);
+#ifdef DEBUG
+        prtln("Joined multicast group %s:%u", sMCastIP, uMCastPort);
+#endif
 
         // send ping
         iaPingTarget = ipHdr->ip_src;
@@ -203,7 +226,13 @@ void pingAlarm(int signo) {
     alarm(1);
 }
 
+void exitAlarm(int signo) {
+    prtln("5 seconds times out, exiting tour...");
+    exit(0);
+}
+
 void ping() {
+    isPinging = 1;
     struct sockaddr_in targetAddr;
     bzero(&targetAddr, sizeof(targetAddr));
     targetAddr.sin_addr = iaPingTarget;
@@ -230,8 +259,6 @@ int relayRoutingMsg(const int iSockRt, unsigned char* data) {
 
     char nextIP[IP_STR_LEN];
     sprtIP(nextIP, usrData + nextOffset);
-    prtln("next offset:%u", nextOffset);
-    prtln("next ip:%s", nextIP);
     nextOffset += IP_LEN;
     if (nextOffset + 20 > RT_PACKET_SIZE) {
         nextOffset = 0;
@@ -303,7 +330,9 @@ int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP
     icmpHdr->icmp_cksum = 0;
     icmpHdr->icmp_cksum = in_cksum((unsigned short*)icmpHdr, len);
     int n = sendto(iSockfd, buffer, ETH_HLEN + 20 + len, 0, (SA*)&destAddr, sizeof(destAddr));
-    prtln("PING vm*** (%s): %d data bytes", targetIP, n);
+    char dstHostName[128];
+    getHostNameByIP(dstHostName, targetIP);
+    prtln("PING %s(%s): %d data bytes", dstHostName, targetIP, n);
     return n;
 }
 
@@ -342,9 +371,7 @@ char* getHostNameByIP(char* name, const char* IP) {
     bzero(&addr, sizeof(addr));
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, IP, &addr.sin_addr);
-    struct hostent* e = gethostbyaddr(&addr, sizeof(addr), AF_INET);
-    strcpy(name, e->h_name);
-    return name;
+    return getHostNameByAddr(name, &addr);
 }
 
 int sendRoutingMsg(const int iSockfd, const int hostNum, char** hostList) {

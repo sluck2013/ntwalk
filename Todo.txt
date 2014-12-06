@@ -1,4 +1,0 @@
-normalize exe file name
-
-Readme: must restart
-Can't receive UDP reason: select before joining

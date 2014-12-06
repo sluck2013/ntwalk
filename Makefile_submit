@@ -1,5 +1,5 @@
 CC = gcc
-UNP_PATH = /unpv13e/cse533/Stevens/unpv13e
+UNP_PATH = /users/cse533/Stevens/unpv13e
 LIBS = $(UNP_PATH)/libunp.a 
 
 CFLAGS = -g -O2 -std=gnu99 -Wno-unused-result

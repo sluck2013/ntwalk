@@ -9,11 +9,11 @@
 #include <linux/if_ether.h>
 #include <linux/if_arp.h>
 
-int iMaxFd;
-fd_set fsAll;
+int iMaxFd;     // max socket descriptor
+fd_set fsAll;   // all listened sockets
 
-ACacheTab *pARPCahceTab;
-LocalMap *pLocalMap;
+ACacheTab *pARPCahceTab;  //pointer to cache table
+LocalMap *pLocalMap;      //pointer to <mac, IP> pair table
 
 int main() {
     pLocalMap = getLocalMap();
@@ -62,7 +62,6 @@ int main() {
                 struct sockaddr_ll srcAddr;
                 int len = sizeof(srcAddr);
                 recvfrom(iRawSock, readBuf, ETH_FRAME_LEN, 0, (SA*)&srcAddr, &len);
-                //short *op = (short*)(readBuf + ETH_HLEN + 8);
                 ARPMsg arpMsg;
                 short manId = parseEthFrame(&arpMsg, readBuf);
                 if (manId != ARP_MAN_ID) {
@@ -81,7 +80,7 @@ int main() {
     //free(pLocalMap);
     return 0;
 }
-
+/*
 void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* targetMac, const char* srcDecIP, const char* targetDecIP) {
     memcpy((void*)arpMsg->destMac, (void*)destMac, ETH_ALEN);
     memcpy((void*)arpMsg->srcMac, (void*)srcMac, ETH_ALEN);
@@ -93,7 +92,14 @@ void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const un
     parseIP(arpMsg->srcIP, srcDecIP);
     parseIP(arpMsg->targetIP, targetDecIP);
 }
+*/
 
+/*
+ * parse received Ethernet frame into ARPMsg
+ * @return manID of ARPMsg
+ * @param msg pointer to ARPMsg to store result
+ * @param eth pointer to Ethernet frame
+ */
 short parseEthFrame(ARPMsg* msg, const void* eth) {
     memcpy((void*)msg->destMac, eth, ETH_ALEN);
     memcpy((void*)msg->srcMac, eth + ETH_ALEN, ETH_ALEN);
@@ -138,6 +144,12 @@ LocalMap* getLocalMap() {
     return mapHead;
 }
 
+/*
+ * retrieve entry from local <HWaddr, IP> table, with IP=designated IP
+ * @return pointer to found entry
+ * @param mp pointer to <HWaddr, IP> table
+ * @param IP designated IP
+ */
 const LocalMap* getLocalMapEntByIP(const LocalMap* mp, const char *IP) {
     const LocalMap* p = mp;
     while (p != NULL) {
@@ -165,6 +177,13 @@ void prtLocalMap(const LocalMap* pLocalMap) {
     prtln("====== Local <IP addr, HW addr> found for eth0 END ======\n");
 }
 
+/*
+ * On receiving ARP reply message, complete newly inserted cache table entry,
+ * reply to application, close connection socket.
+ * @param arpMsg ARPMsg structure that stores ARP reply reading off raw socket.
+ * @param iRawSock PF_PACKET raw socket
+ * @param iListenSock Unix domain socket for responding application's request
+ */
 void handleArpReply(const ARPMsg* arpMsg, const int iRawSock, const int iListenSock) {
     char sSrcMac[MAC_STR_LEN], sDestMac[MAC_STR_LEN], sTargetMac[MAC_STR_LEN];
     char sSrcIP[IP_STR_LEN], sTargetIP[IP_STR_LEN];
@@ -209,10 +228,20 @@ void handleArpReply(const ARPMsg* arpMsg, const int iRawSock, const int iListenS
     iMaxFd = max(iRawSock, iListenSock);
     e->connfd = -1;
 #ifdef DEBUG
-    prtln("Connection to application closed!\n");
+    prtln("Replied to application. Connection closed!\n");
 #endif
 }
 
+/*
+ * On receiving ARP request, insert into or update cache table entry based on
+ * source and destination IP address. If destination is local host, send back
+ * ARP reply message.
+ * @param iRawSock PF_PACKET raw socket
+ * @param arpMsg pointer to ARPMsg structure that stores ARP request message
+ *        read off iRawSock
+ * @param slSrcAddr pointer to source address read returned by recvfrom when
+ *        reading ARP request message
+ */
 void handleArpReq(const int iRawSock, ARPMsg* arpMsg, const struct sockaddr_ll* slSrcAddr) {
     char srcIP[IP_STR_LEN], targetIP[IP_STR_LEN];
     sprtIP(srcIP, arpMsg->srcIP);
@@ -246,6 +275,15 @@ void handleArpReq(const int iRawSock, ARPMsg* arpMsg, const struct sockaddr_ll* 
     }
 }
 
+/*
+ * On receiving applications's request, check if target information is in cache
+ * table. If yes, reply to application and return; otherwise insert into cache
+ * table an incomplete entry and broadcast ARP request message.
+ * @param iLIstenSock Unix domain socket used for responding application's request
+ * @param iRawSock PF_PACKET raw socket
+ * @param *piConnSock pointer to connection socket used for reading application's
+ *        request
+ */
 void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
     struct sockaddr_un suSender;
     socklen_t senderLen = sizeof(suSender);
@@ -316,7 +354,19 @@ ACacheEnt* findACacheEntByIP(const ACacheTab* tab, const char* IP) {
     return NULL;
 }
 
-ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd) {
+/*
+ * insert new entry into ARP cache table
+ * @return pointer to inserted entry
+ * @param tab pointer to ARP cache table where entry is inserted
+ * @param IP string storing IP in dotted decimal format to be inserted
+ * @param mac string storing IP in value format (6 bits) to be inserted
+ * @param ifindex sll_ifindex to be inserted
+ * @param hatype Hard type to be inserted
+ * @param connfd connection socket to be inserted
+ */
+ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, 
+        const unsigned char* mac, const int ifindex, 
+        const unsigned short hatype, const int connfd) {
     ACacheEnt* e = malloc(sizeof(*e));
     strcpy(e->IP, IP);
     memcpy(e->mac, mac, ETH_ALEN);
@@ -340,7 +390,22 @@ ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned ch
     return e;
 }
 
-ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd) {
+/*
+ * update ARP cache table entry
+ * @return pointer to updated ARP cache table entry
+ * @param e pointer to ARP cache table entry to be updated
+ * @param tab pointer to ARP cache table where entry is updated
+ * @param IP string storing IP in dotted decimal format to be updated, if passed
+ *        NULL, IP will not be updated
+ * @param mac string storing IP in value format (6 bits) to be updated, if passed
+ *        NULL, mac will not be updated
+ * @param ifindex sll_ifindex to be updated, if passed -1, ifindex will not be updated
+ * @param hatype Hard type to be updated, if passed 0, hatype will not be updated
+ * @param connfd connection socket to be updated, if passed -1, connfd will not
+ *        be updated
+ */
+ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* mac, 
+        const int ifindex, const unsigned short hatype, const int connfd) {
 #ifdef DEBUG
     char sMac[MAC_STR_LEN];
     printf("Updating cache table... Updated field: ");
@@ -383,6 +448,10 @@ ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* ma
 #endif
 }
 
+/*
+ * remove incomplete entries in ARP cache table
+ * @param tab pointer ARP table where incomplete entries to be removed
+ */
 void removeIncompACacheEnt(ACacheTab* tab) {
     ACacheEnt* e = tab->head;
     while (e != NULL) {
@@ -404,6 +473,11 @@ void removeIncompACacheEnt(ACacheTab* tab) {
     }
 }
 
+/*
+ * print ARP cache table entry
+ * @param title title string
+ * @param e pointer to ARP cache table entry to be printed
+ */
 void prtACacheEnt(const char* title, const ACacheEnt* e) {
     size_t len = strlen(title);
     size_t leftPad = (42 - len) / 2;
@@ -423,10 +497,21 @@ void prtACacheEnt(const char* title, const ACacheEnt* e) {
     prtln("================= Entry End ================\n");
 }
 
+/*
+ * check if a ARP cache table entry is complete
+ * @return 1 if complete, 0 otherwise
+ * @param ent pointer to ARP cache table entry to be checked
+ */
 int isACacheEntComplete(const ACacheEnt* ent) {
     return ent->connfd < 0;
 }
 
+/*
+ * send ARP request
+ * @return number of bytes sent out on success, -1 on failure
+ * @param iSockfd socket through which request is sent
+ * @param targetIP string of IP whose corresponding mac address is searched for
+ */
 int sendARPRequest(const int iSockfd, const char* targetIP) {
     ARPMsg arpReqMsg;
     arpReqMsg.op = ARP_REQ;
@@ -452,6 +537,14 @@ int sendARPRequest(const int iSockfd, const char* targetIP) {
     return sendARPPacket(iSockfd, &arpReqMsg, pLocalMap->ifIndex);
 } 
 
+/* 
+ * send ARP reply
+ * @return number of bytes sent out on success, -1 on failure
+ * @param iSockfd socket through which reply is sent
+ * @param arpMsg pointer to ARPMsg that stores ARP request, which this ARP
+ *        reply is responding to
+ * @param ifindex outgoing interface index
+ */
 int sendARPReply(const int iSockfd, ARPMsg* arpMsg, const int ifindex) {
     memcpy((void*)arpMsg->destMac, (void*)arpMsg->srcMac, ETH_ALEN);
     memcpy((void*)arpMsg->targetMac, (void*)arpMsg->srcMac, ETH_ALEN);
@@ -484,6 +577,13 @@ int sendARPReply(const int iSockfd, ARPMsg* arpMsg, const int ifindex) {
     return sendARPPacket(iSockfd, arpMsg, ifindex);
 }
 
+/*
+ * send ARP request or reply message
+ * @return number of bytes sent on on success, -1 on failure
+ * @param iSockfd socket through which message is sent out
+ * @param arpMsg pointer to ARPMsg structure that stores ARP request/reply message
+ * @param iIfIndex outgoing interface index
+ */
 int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex) {
     struct sockaddr_ll sockAddrRecv;
     void *buffer = malloc(ETH_FRAME_LEN);

@@ -34,5 +34,6 @@ void handleMCastMsg();
 PingList* newPingList();
 PingEnt* insertIntoPingList(PingList* lst, const struct in_addr *addr);
 int existInPingList(const PingList* list, const struct in_addr* addr);
+void deletePingList(PingList* lst);
 
 #endif

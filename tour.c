@@ -10,17 +10,17 @@
 #include <linux/if_ether.h>
 #include <netinet/ip_icmp.h>
 
-PingList *pPingTargets = NULL;
-int iSockICMP;
-int iSockUdp;
-int iSockRt;
-int iSockPg;
-int iRecvICMPCtr = 0;
-int isLastNode = 0;
-int isPinging= 0;
-int isJoinedMCast = 0;
-unsigned short uMCastPort = 0;
-char sMCastIP[IP_STR_LEN];
+PingList *pPingTargets = NULL;  //ping targets
+int iSockICMP;                  //ICMP socket
+int iSockUdp;                   //UDP socket
+int iSockRt;                    //rt socket
+int iSockPg;                    //pg socket
+int iRecvICMPCtr = 0;           //received ICMP reply counter
+int isLastNode = 0;             //last node flag
+int isPinging= 0;               //pinging flag
+int isJoinedMCast = 0;          //joined multicast group flag
+unsigned short uMCastPort = 0;  //multicast group port
+char sMCastIP[IP_STR_LEN];      //multicast group IP
 
 int main(int argc, char** argv) {
     iSockRt = socket(AF_INET, SOCK_RAW, IPPROTO_RT);
@@ -92,6 +92,10 @@ int main(int argc, char** argv) {
     return 0;
 }
 
+/*
+ * On receiving multicast message, reply with multicast message or set 5 seconds
+ * time out. Stop pinging meanwhile if ping is in progress
+ */
 void handleMCastMsg() {
     char buffer[MAXLINE];
     struct sockaddr_in srcAddr;
@@ -119,6 +123,12 @@ void handleMCastMsg() {
     //isLastNode = 0;
 }
 
+/*
+ * join socket into multicast group
+ * @return negative integer if failed, positive if succeed
+ * @param grpIP string of target multicast group IP address
+ * @param grpPort target multicast group port
+ */
 int joinMulticast(const int iSockfd, const char* grpIP, const unsigned short grpPort) {
     struct sockaddr_in mcastAddr;
     bzero(&mcastAddr, sizeof(mcastAddr));
@@ -130,6 +140,12 @@ int joinMulticast(const int iSockfd, const char* grpIP, const unsigned short grp
     return mcast_join(iSockfd, (SA*)&mcastAddr, sizeof(mcastAddr), NULL, 0); 
 }
 
+/*
+ * On receiving ICMP message, check type and ID. If passed, update received ICMP
+ * echo reply counter, stop pinging, and send multicast message if local host
+ * is last node in tour and it has received at least 5 echo replies from
+ * preceding node
+ */
 void handleICMPMsg() {
     unsigned char data[RT_PACKET_SIZE];
     struct sockaddr_in srcAddr;
@@ -171,6 +187,12 @@ void handleICMPMsg() {
     }
 }
 
+/*
+ * send multicast message
+ * @return number of bytes sent out on success, -1 on failure
+ * @param msg string of msg to be sent out
+ * @param msgSize length of msg buffer
+ */
 int sendMCastMsg(const char* msg, const size_t msgSize) {
     char localHost[10];
     gethostname(localHost, sizeof(localHost));
@@ -182,6 +204,9 @@ int sendMCastMsg(const char* msg, const size_t msgSize) {
     return sendto(iSockUdp, msg, msgSize, 0, (SA*)&dstAddr, sizeof(dstAddr));
 }
 
+/*
+ * On receiving routing packet, join UDP socket ot multicast, ping
+ */
 void handleRoutingMsg() {
     unsigned char data[RT_PACKET_SIZE];
     struct sockaddr_in srcAddr;
@@ -239,18 +264,30 @@ void handleRoutingMsg() {
     }
 }
 
+/*
+ * alarm handler
+ */
 void pingAlarm(int signo) {
     ping();
     alarm(1);
 }
 
+/*
+ * alarm handler
+ */
 void exitAlarm(int signo) {
     prtln("5 seconds times out, exiting tour...");
     close(iSockICMP);
     close(iSockUdp);
+    close(iSockRt);
+    close(iSockPg);
+    deletePingList(pPingTargets);
     exit(0);
 }
 
+/*
+ * send ICMP echo requests to address in pPingTargets
+ */
 void ping() {
     isPinging = 1;
     struct sockaddr_in targetAddr;
@@ -273,6 +310,11 @@ void ping() {
     }
 }
 
+/*
+ * Modify received routing packet data and relay it to next node
+ * @return number of bytes sent out on success, -1 on failure
+ * @param data string buffer of received routing packet
+ */
 int relayRoutingMsg(unsigned char* data) {
     struct ip* ipHdr = (struct ip*)data;
     unsigned char *usrData = data + 20;
@@ -305,6 +347,12 @@ int relayRoutingMsg(unsigned char* data) {
     return sendto(iSockRt, data, RT_PACKET_SIZE, 0, (SA*)&dstAddr, sizeof(dstAddr));
 }
 
+/*
+ * sent ICMP echo request to target
+ * @return number of bytes sent out on success, -1 on failure
+ * @param targetHwAddr HWaddr of receiver
+ * @param targetIP dotted-decimal IP string of receiver
+ */
 int sendICMP(const Hwaddr *targetHwAddr, const char* targetIP) {
     struct sockaddr_ll destAddr;
     void* buffer = malloc(ETH_FRAME_LEN);
@@ -365,11 +413,20 @@ int sendICMP(const Hwaddr *targetHwAddr, const char* targetIP) {
     return n;
 }
 
+/*
+ * Get ICMP echo request sequence number
+ * @return returned sequence number
+ */
 unsigned short getPingSeqNum() {
     static unsigned short seq = 0;
     return ++seq;
 }
 
+/*
+ * Retrieve local mac address
+ * @return mac paramter
+ * @param mac buffer storing returned value
+ */
 unsigned char* getLocalMac(unsigned char* mac) {
     struct hwa_info *hwaHead, *hwaPtr;
     hwaHead = hwaPtr = Get_hw_addrs();
@@ -382,6 +439,12 @@ unsigned char* getLocalMac(unsigned char* mac) {
     }
 }
 
+/*
+ * Retrieve IP of a given host name
+ * @return same as IP parameter
+ * @param IP string buffer used to store return value
+ * @param name host name string
+ */
 char* getIPByHostName(char* IP, const char* name) {
     struct hostent* e = gethostbyname(name);
     struct in_addr **lst = (struct in_addr**)e->h_addr_list;
@@ -389,12 +452,24 @@ char* getIPByHostName(char* IP, const char* name) {
     return IP;
 }
 
+/*
+ * Retrieve host name of given address
+ * @return same as name parameter
+ * @param name string buffer to store return value
+ * @param sa pointer to sockaddr_in that stores target address
+ */
 char* getHostNameByAddr(char* name, struct sockaddr_in* sa) {
     struct hostent* e = gethostbyaddr(&sa->sin_addr, sizeof(sa->sin_addr), AF_INET);
     strcpy(name, e->h_name);
     return name;
 }
 
+/*
+ * Retrieve host name of given IP
+ * @return same as name parameter
+ * @param name string buffer to store return value
+ * @param IP target IP in dotted-decimal format
+ */
 char* getHostNameByIP(char* name, const char* IP) {
     struct sockaddr_in addr;
     bzero(&addr, sizeof(addr));
@@ -403,6 +478,13 @@ char* getHostNameByIP(char* name, const char* IP) {
     return getHostNameByAddr(name, &addr);
 }
 
+/*
+ * Send routing message
+ * @return number of bytes sent out on success, -1 on failure
+ * @param hostNum number of hosts in host list
+ * @param hostList pointer to array that stores of IPs which are associated with
+ *        target sequence of hosts
+ */
 int sendRoutingMsg(const int hostNum, char** hostList) {
     unsigned char data[RT_PACKET_SIZE];
     unsigned char *usrData = data + 20;
@@ -454,18 +536,33 @@ int sendRoutingMsg(const int hostNum, char** hostList) {
     return sendto(iSockRt, data, RT_PACKET_SIZE, 0, (SA*)&dstAddr, sizeof(dstAddr));
 }
 
+/*
+ * Retrieve local primary IP associated with eth0
+ * @return same as IP parameter
+ * @param IP string buffer to store return value
+ */
 char* getLocalIP(char* IP) {
     char hostName[128];
     gethostname(hostName, sizeof(hostName));
     return getIPByHostName(IP, hostName);
 }
 
+/*
+ * Create new ping list
+ * @return pointer to created list
+ */
 PingList* newPingList() {
     PingList* p = malloc(sizeof(*p));
     p->head = NULL;
     return p;
 }
 
+/*
+ * Insert new entry into pinglist
+ * @return inserted entry
+ * @param lst pointer to ping list to be inserted into
+ * @param addr new address value to be inserted
+ */
 PingEnt* insertIntoPingList(PingList* lst, const struct in_addr *addr) {
     PingEnt* e = malloc(sizeof(*e));
     e->addr = *addr;
@@ -478,6 +575,12 @@ PingEnt* insertIntoPingList(PingList* lst, const struct in_addr *addr) {
     return e;
 }
 
+/*
+ * Check if an address is in current ping list
+ * @return 1 if exists, 0 otherwise
+ * @param lst pointer to ping list to be examined
+ * @param addr pointer to address to be inserted
+ */
 int existInPingList(const PingList* lst, const struct in_addr *addr) {
     PingEnt* p = lst->head;
     while (p != NULL) {
@@ -487,4 +590,17 @@ int existInPingList(const PingList* lst, const struct in_addr *addr) {
         p = p->next;
     }
     return 0;
+}
+
+/*
+ * Delete ping list
+ * @param lst pointer to ping list to be deleted
+ */
+void deletePingList(PingList* lst) {
+    while (lst->head != NULL) {
+        PingEnt* p = lst->head;
+        lst->head = p->next;
+        free(p);
+    }  
+    free(lst);
 }

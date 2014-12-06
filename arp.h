@@ -37,8 +37,14 @@ typedef struct ARPCacheTable {
     ACacheEnt *tail;
 } ACacheTab;
 
+/*
+ * ARP operation
+ */
 typedef enum {ARP_REQ = 1, ARP_REP = 2} ArpOp;
 
+/*
+ * ARP request/reply message
+ */
 typedef struct ARPMsg {
     ArpOp op;
     unsigned char destMac[ETH_ALEN];
@@ -48,7 +54,7 @@ typedef struct ARPMsg {
     unsigned char targetIP[IP_LEN];
 } ARPMsg;
 
-void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* targetMac, const char* srcDecIP, const char* targetDecIP);
+//void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* targetMac, const char* srcDecIP, const char* targetDecIP);
 short parseEthFrame(ARPMsg* arpMsg, const void* eth);
 
 LocalMap* getLocalMap();
@@ -61,7 +67,7 @@ int sendARPPacket(const int iSockfd, const ARPMsg* arpMsg, const int iIfIndex);
 int sendARPRequest(const int iSockfd, const char* targetIP);
 int sendARPReply(const int iSockfd, ARPMsg* arpMsg, const int ifindex);
 
-
+/* following functions operates ARP cache table */
 ACacheTab* createACacheTab();
 ACacheEnt* findACacheEntByIP(const ACacheTab* tab, const char *IP);
 ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned char* mac, const int ifindex, const unsigned short hatype, const int connfd);

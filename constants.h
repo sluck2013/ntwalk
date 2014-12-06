@@ -11,7 +11,7 @@
 #define ARP_SUN_PATH "/tmp/arp109399621"
 #define ARP_ETH_PROT (10939)
 #define ARP_MAN_ID (10939)
-#define AREQ_TIMEOUT (3)
+#define AREQ_TIMEOUT (10)
 #define IPPROTO_RT (126)
 #define IPID_RT (10939)
 #define IPID_ICMP (9621)

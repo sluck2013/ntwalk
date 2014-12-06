@@ -39,8 +39,9 @@ int areq(struct sockaddr* IPaddr, socklen_t sockaddrlen, struct hwaddr *HWaddr) 
             return 0;
         }
     }
+    close(iSock);
 #ifdef DEBUG
-    prtln("areq() time out!");
+    prtln("areq() time out! Connection to ARP closed!");
 #endif
     return 1;
 }

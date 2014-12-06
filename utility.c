@@ -20,6 +20,15 @@ int prtln(const char* format, ...) {
     return n;
 }
 
+int prt(const char* format, ...) {
+    va_list arg;
+    va_start(arg, format);
+    int n = vprintf(format, arg);
+    va_end(arg);
+    fflush(stdout);
+    return n;
+}
+
 /*
  * print MAC address into string buffer
  * @param dest pointer to destination string buffer

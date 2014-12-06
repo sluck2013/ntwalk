@@ -186,9 +186,13 @@ void handleArpReply(const ARPMsg* arpMsg, const int iRawSock, const int iListenS
 
     ACacheEnt* e = findACacheEntByIP(pARPCahceTab, sSrcIP);
     if (e == NULL) {
+#ifdef DEBUG
+        prtln("No cache entry for %s", sSrcIP);
+#endif
         //entry has been deleted due to timeout
         return;
     }
+   
     updateACacheEnt(e, NULL, arpMsg->srcMac, -1, 0, -1);
     Hwaddr hwAddr;
     hwAddr.sll_ifindex = e->ifindex;
@@ -204,6 +208,9 @@ void handleArpReply(const ARPMsg* arpMsg, const int iRawSock, const int iListenS
     FD_CLR(e->connfd, &fsAll);
     iMaxFd = max(iRawSock, iListenSock);
     e->connfd = -1;
+#ifdef DEBUG
+    prtln("Connection to application closed!\n");
+#endif
 }
 
 void handleArpReq(const int iRawSock, ARPMsg* arpMsg, const struct sockaddr_ll* slSrcAddr) {
@@ -266,9 +273,9 @@ void handleAppReq(const int iListenSock, const int iRawSock, int *piConnSock) {
         }
         FD_SET(*piConnSock, &fsAll);
         iMaxFd = max(iMaxFd, *piConnSock);
-    } else if (pEnt->connfd == -1) {
+    } else {
 #ifdef DEBUG
-        prtln("Found target HWaddr in cache table.");
+        prtln("Found target HWaddr of %s in cache table.", targetIP);
 #endif
         unsigned char data[UXDOM_BUF_SIZE];
         tourHwAddr.sll_ifindex = pEnt->ifindex;
@@ -323,7 +330,8 @@ ACacheEnt* insertIntoACacheTab(ACacheTab* tab, const char* IP, const unsigned ch
         e->next = NULL;
     } else {
         e->prev = tab->tail;
-        e->next = tab->tail->next;
+        e->next = NULL;
+        tab->tail->next = e;
         tab->tail = e;
     }
 #ifdef DEBUG
@@ -336,6 +344,7 @@ ACacheEnt* updateACacheEnt(ACacheEnt* e, const char* IP, const unsigned char* ma
 #ifdef DEBUG
     char sMac[MAC_STR_LEN];
     printf("Updating cache table... Updated field: ");
+    fflush(stdout);
 #endif
     if (IP != NULL) {
        strcpy(e->IP, IP);
@@ -384,6 +393,9 @@ void removeIncompACacheEnt(ACacheTab* tab) {
             if (e != tab->tail) {
                 e->next->prev = e->prev;
             }
+#ifdef DEBUG
+            prtACacheEnt("Removed incomplete cache entry", e);
+#endif
             free(e);
             return;
         } else {

@@ -10,13 +10,13 @@
 #include <linux/if_ether.h>
 #include <netinet/ip_icmp.h>
 
-int isVisited = 0;
 struct in_addr iaPingTarget;
 int iSockICMP;
 int iSockUdp;
 int iRecvICMPCtr = 0;
 int isLastNode = 0;
 int isPinging= 0;
+int isJoinedMCast = 0;
 unsigned short uMCastPort;
 char sMCastIP[IP_STR_LEN];
 
@@ -55,7 +55,11 @@ int main(int argc, char** argv) {
 
     if (argc > 1) {
         sendRoutingMsg(iSockRt, argc - 1, &argv[1]);
-        joinMulticast(iSockUdp, TOUR_MCAST_IP, TOUR_MCAST_PORT);
+        if (joinMulticast(iSockUdp, TOUR_MCAST_IP, TOUR_MCAST_PORT) < 0) {
+            prtErr(ERR_JOIN_MCAST);
+        } else {
+            isJoinedMCast = 1;
+        }
         uMCastPort = TOUR_MCAST_PORT;
         strcpy(sMCastIP, TOUR_MCAST_IP);
     }
@@ -108,7 +112,6 @@ void handleMCastMsg(const int iSockUdp) {
 
     Signal(SIGALRM, exitAlarm);
     alarm(5);
-    //isVisited = 0;
     //isLastNode = 0;
 }
 
@@ -132,6 +135,10 @@ void handleICMPMsg(const int iSockPg, const int iSockUdp) {
     struct icmp* icmpHdr = (struct icmp*)(data + 20);
     unsigned char icmpType = icmpHdr->icmp_type;
     if (icmpType != ICMP_ECHOREPLY) {
+        return;
+    }
+
+    if (ntohs(icmpHdr->icmp_id) != (unsigned short)getpid()) {
         return;
     }
     
@@ -188,7 +195,7 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
 
     // join multicast group
     unsigned char* payload = data + 20;
-    if (!isVisited) {
+    if (!isJoinedMCast) {
         char grpIP[IP_STR_LEN];
         sprtIP(grpIP, payload + 2);
         unsigned short* grpPort = (unsigned short*)(payload + 2 + IP_LEN);
@@ -197,19 +204,22 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
         int r = joinMulticast(iSockUdp, sMCastIP, uMCastPort);
         if (r < 0) {
             prtErr(ERR_JOIN_MCAST);
+        } else {
+            isJoinedMCast = 1;
         }
 #ifdef DEBUG
         prtln("Joined multicast group %s:%u", sMCastIP, uMCastPort);
 #endif
+    }
 
+    //if (!isPinging) {
+    if (iaPingTarget.s_addr != ipHdr->ip_src.s_addr) {
         // send ping
         iaPingTarget = ipHdr->ip_src;
         ping();
         signal(SIGALRM, pingAlarm);
         alarm(1);
     }
-    isVisited = 1;
-
 
     // relay routing pkg to next node
     // WARNING:d data will be modified after call
@@ -321,7 +331,7 @@ int sendICMP(const int iSockfd, const Hwaddr *targetHwAddr, const char* targetIP
     int datalen = 56;
     icmpHdr->icmp_type = ICMP_ECHO;
     icmpHdr->icmp_code = 0;
-    icmpHdr->icmp_id = (unsigned short)getpid();
+    icmpHdr->icmp_id = htons((unsigned short)getpid());
     icmpHdr->icmp_seq = getPingSeqNum();
     memset(icmpHdr->icmp_data, 0xa5, datalen);
     Gettimeofday((struct timeval*)icmpHdr->icmp_data, NULL);

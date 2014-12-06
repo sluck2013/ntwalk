@@ -16,7 +16,7 @@ arp18: arp.o get_hw_addrs.o utility.o common.o
 tour.o: tour.c tour.h constants.h
 	$(CC) $(FLAGS) -c tour.c
 arp.o: arp.c arp.h constants.h
-	$(CC) $(FLAGS) -c arp.c
+	$(CC) $(FLAGS) -c arp.c 
 utility.o: utility.h utility.c constants.h
 	$(CC) $(FLAGS) -c utility.c
 get_hw_addrs.o: lib/get_hw_addrs.c lib/hw_addrs.h

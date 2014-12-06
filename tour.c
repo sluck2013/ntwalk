@@ -10,7 +10,7 @@
 #include <linux/if_ether.h>
 #include <netinet/ip_icmp.h>
 
-struct in_addr iaPingTarget;
+PingList *pPingTargets = NULL;
 int iSockICMP;
 int iSockUdp;
 int iRecvICMPCtr = 0;
@@ -44,6 +44,8 @@ int main(int argc, char** argv) {
     if (iSockUdp < 0) {
         errExit(ERR_CREATE_UDP);
     }
+
+    pPingTargets = newPingList();
 
     fd_set fsAll, fsRead;
     FD_ZERO(&fsAll);
@@ -147,7 +149,10 @@ void handleICMPMsg(const int iSockPg, const int iSockUdp) {
     getHostNameByAddr(srcHost, &srcAddr);
     prtln("Received ping reply from %s", srcHost);
 #endif
-    if (++iRecvICMPCtr >= 5 && isLastNode) {
+    if (srcAddr.sin_addr.s_addr == pPingTargets->head->addr.s_addr) {
+        ++iRecvICMPCtr;
+    }
+    if (iRecvICMPCtr >= 5 && isLastNode) {
         if (!isPinging) {
             return;
         }
@@ -213,9 +218,10 @@ void handleRoutingMsg(const int iSockRt, const int iSockICMP, const int iSockUdp
     }
 
     //if (!isPinging) {
-    if (iaPingTarget.s_addr != ipHdr->ip_src.s_addr) {
+    if (!existInPingList(pPingTargets, &ipHdr->ip_src)) {
         // send ping
-        iaPingTarget = ipHdr->ip_src;
+        //iaPingTarget = ipHdr->ip_src;
+        insertIntoPingList(pPingTargets, &ipHdr->ip_src);
         ping();
         signal(SIGALRM, pingAlarm);
         alarm(1);
@@ -238,23 +244,30 @@ void pingAlarm(int signo) {
 
 void exitAlarm(int signo) {
     prtln("5 seconds times out, exiting tour...");
+    close(iSockICMP);
+    close(iSockUdp);
     exit(0);
 }
 
 void ping() {
     isPinging = 1;
     struct sockaddr_in targetAddr;
-    bzero(&targetAddr, sizeof(targetAddr));
-    targetAddr.sin_addr = iaPingTarget;
-    Hwaddr targetHwAddr;
-    targetHwAddr.sll_ifindex = 0;
-    targetHwAddr.sll_hatype = 0;
-    targetHwAddr.sll_halen = 0;
-    memset((void*)targetHwAddr.sll_addr, 0, 8);
-    if (areq((SA*)&targetAddr, sizeof(targetAddr), &targetHwAddr) == 0) {
-        char targetIP[IP_STR_LEN];
-        inet_ntop(AF_INET, &iaPingTarget, targetIP, IP_STR_LEN);
-        int n = sendICMP(iSockICMP, &targetHwAddr, targetIP);
+    PingEnt *e = pPingTargets->head;
+    while (e != NULL) {
+        bzero(&targetAddr, sizeof(targetAddr));
+        targetAddr.sin_addr = e->addr;
+        Hwaddr targetHwAddr;
+        targetHwAddr.sll_ifindex = 0;
+        targetHwAddr.sll_hatype = 0;
+        targetHwAddr.sll_halen = 0;
+        memset((void*)targetHwAddr.sll_addr, 0, 8);
+        if (areq((SA*)&targetAddr, sizeof(targetAddr), &targetHwAddr) == 0) {
+            char targetIP[IP_STR_LEN];
+            inet_ntop(AF_INET, &e->addr, targetIP, IP_STR_LEN);
+            prtln("targetIP:%s", targetIP);
+            int n = sendICMP(iSockICMP, &targetHwAddr, targetIP);
+        }
+        e = e->next;
     }
 }
 
@@ -439,4 +452,33 @@ char* getLocalIP(char* IP) {
     char hostName[128];
     gethostname(hostName, sizeof(hostName));
     return getIPByHostName(IP, hostName);
+}
+
+PingList* newPingList() {
+    PingList* p = malloc(sizeof(*p));
+    p->head = NULL;
+    return p;
+}
+
+PingEnt* insertIntoPingList(PingList* lst, const struct in_addr *addr) {
+    PingEnt* e = malloc(sizeof(*e));
+    e->addr = *addr;
+    if (lst->head == NULL) {
+        e->next = NULL;
+    } else {
+        e->next = lst->head;
+    }
+    lst->head = e;
+    return e;
+}
+
+int existInPingList(const PingList* lst, const struct in_addr *addr) {
+    PingEnt* p = lst->head;
+    while (p != NULL) {
+        if (p->addr.s_addr == addr->s_addr) {
+            return 1;
+        }
+        p = p->next;
+    }
+    return 0;
 }

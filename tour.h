@@ -4,11 +4,15 @@
 #include "unp.h"
 #include "common.h"
 
-/*typedef struct IPList {
-    char IP[IP_STR_LEN];
-    struct IPList* next;
-} IPList;
-*/
+typedef struct PingTargetEntry {
+    struct in_addr addr;
+    struct PingTargetEntry* next;
+} PingEnt;
+
+typedef struct PingTargetList {
+    PingEnt* head;
+} PingList;
+
 char* getIPByHostName(char* IP, const char* name);
 char* getHostNameByIP(char* name, const char* IP);
 char* getHostNameByAddr(char* name, struct sockaddr_in* sa);
@@ -26,5 +30,9 @@ void pingAlarm(int signo);
 void exitAlarm(int signo);
 int sendMCastMsg(const int iSockUdp, const char* msg, const size_t msgSize);
 void handleMCastMsg(const int iSockUdp);
+
+PingList* newPingList();
+PingEnt* insertIntoPingList(PingList* lst, const struct in_addr *addr);
+int existInPingList(const PingList* list, const struct in_addr* addr);
 
 #endif

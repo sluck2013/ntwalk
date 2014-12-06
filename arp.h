@@ -54,7 +54,6 @@ typedef struct ARPMsg {
     unsigned char targetIP[IP_LEN];
 } ARPMsg;
 
-//void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* targetMac, const char* srcDecIP, const char* targetDecIP);
 short parseEthFrame(ARPMsg* arpMsg, const void* eth);
 
 LocalMap* getLocalMap();

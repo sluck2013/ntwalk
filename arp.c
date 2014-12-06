@@ -80,19 +80,6 @@ int main() {
     //free(pLocalMap);
     return 0;
 }
-/*
-void makeARPMsg(ARPMsg* arpMsg, ArpOp op, const unsigned char* destMac, const unsigned char* srcMac, const unsigned char* targetMac, const char* srcDecIP, const char* targetDecIP) {
-    memcpy((void*)arpMsg->destMac, (void*)destMac, ETH_ALEN);
-    memcpy((void*)arpMsg->srcMac, (void*)srcMac, ETH_ALEN);
-    if (targetMac != NULL) {
-        memcpy((void*)arpMsg->targetMac, (void*)targetMac, ETH_ALEN);
-    } else {
-        memset((void*)arpMsg->targetMac, 0, ETH_ALEN);
-    }
-    parseIP(arpMsg->srcIP, srcDecIP);
-    parseIP(arpMsg->targetIP, targetDecIP);
-}
-*/
 
 /*
  * parse received Ethernet frame into ARPMsg
